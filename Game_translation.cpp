@@ -47,6 +47,8 @@ IF YOU HAVE, GO AHEAD!
 #include <cerrno>
 #include <cstring>
 #include <csignal>
+#include <filesystem>
+#include <fstream>
 
 // ─── I/O helpers ───
 // emit(): write a string to stdout.
@@ -130,14 +132,21 @@ static bool readline(std::string& s, const std::string& prompt = "") {
     }
     return got;
 }
+// exitWithError(): mirrors Game.py's exitwith() — a plain (unstripped,
+// unlogged) stdout print followed by exit(1), used where Python code now
+// deliberately bypasses printoutput()/logging on its way out.
+static void exitWithError(const std::string& msg) {
+    std::printf("%s\n", msg.c_str());
+    std::exit(1);
+}
 
 // ─── command-line argument parser (mirrors Game.py's --option parser) ───
 // Option value kinds: 0 = True (unset, requires a value), 1 = False (unset flag),
 // 2 = None (flag was set), 3 = Str (has a string value).
 struct OptVal { int kind; std::string s; };
 // Returns false (and prints an error to stdout) if parsing should abort the program.
-static bool parseArgs(int argc, char** argv, std::string& fileOpt, bool& fileSet, bool& noColorSet, bool& noAnsiSet) {
-    std::map<std::string,OptVal> options = {{"log-file", {0,""}}, {"no-color", {1,""}}, {"no-ansi", {1,""}}};
+static bool parseArgs(int argc, char** argv, std::string& fileOpt, bool& fileSet, bool& noColorSet, bool& noAnsiSet, bool& loadSet) {
+    std::map<std::string,OptVal> options = {{"log-file", {0,""}}, {"no-color", {1,""}}, {"no-ansi", {1,""}}, {"load", {1,""}}};
     std::string curarg; bool hasCurarg=false;
     auto startsWithDD=[](const std::string& a){ return a.size()>=2 && a[0]=='-' && a[1]=='-'; };
     for(int idx=1; idx<argc; ++idx) {
@@ -187,6 +196,7 @@ static bool parseArgs(int argc, char** argv, std::string& fileOpt, bool& fileSet
     fileOpt = fv.s;
     noColorSet = options["no-color"].kind == 2;
     noAnsiSet = options["no-ansi"].kind == 2;
+    loadSet = options["load"].kind == 2;
     return true;
 }
 
@@ -244,6 +254,12 @@ struct EndGame { std::string description, endmessage; bool win; };
 // ─────────────────────────────────────────────────────────────
 static const std::vector<std::string> PASSWORDS = {"ad6x29z","xz50op3","g8k9vbn","8dkr6e9","b4n7cc1"};
 static const std::string LAST_PASSWD_CODE = "Bangalore is Four distances North in Seven of China's largest Cuisines, number One.";
+
+// gHistory — mirrors Game.py's Game.history: every typed line (except the bare
+// commands "save"/"load" themselves), used by save/load. Lives at file scope
+// (not on Engine) because Python's Game object — and so its history — persists
+// across "play again" restarts, while the C++ Engine is recreated each restart.
+static std::vector<std::string> gHistory;
 
 // ─────────────────────────────────────────────────────────────
 // GameResult
@@ -1514,11 +1530,13 @@ public:
     int maxcommands=200;
     int donecommands=0;
 
-    Engine(WorldBase* w, Person* p) : world(w), person(p) {
+    Engine() : world(nullptr), person(nullptr) {
         auto s=this;
         commands["help"]        =[s](const std::string& x){ return x.empty()?s->cmdHelp():gStr("\x1b[31mSorry, I don't understand.\x1b[0m"); };
         commands["moves"]=commands["commands"]=[s](const std::string& x){ return x.empty()?gStr("\x1b[32mYou have "+std::to_string(s->maxcommands-s->donecommands)+" commands left.\x1b[0m"):gStr("\x1b[31mSorry, I don't understand.\x1b[0m"); };
-        commands["quit"]         =[s](const std::string& x){ return x.empty()?gEnd("","bye",false):gStr("\x1b[31mSorry, I don't understand.\x1b[0m"); };
+        commands["quit"]         =[s](const std::string& x){ return x.empty()?s->cmdQuit():gStr("\x1b[31mSorry, I don't understand.\x1b[0m"); };
+        commands["save"]=[s](const std::string& x){ return x.empty()?s->cmdSave():gStr("\x1b[31mSorry, I don't understand.\x1b[0m"); };
+        commands["load"]=[s](const std::string& x){ return x.empty()?s->cmdLoad():gStr("\x1b[31mSorry, I don't understand.\x1b[0m"); };
         commands["walk"]=commands["move"]=commands["go"]=[s](const std::string& x){ return s->cmdMove(x); };
         commands["take"]=commands["pick up"]=commands["get"]=[s](const std::string& x){ return s->cmdTake(x); };
         commands["drop"]=commands["leave"]=[s](const std::string& x){ return s->cmdDrop(x); };
@@ -1551,7 +1569,128 @@ public:
             for (const std::string& dd : {d, std::string(1,d[0])})
                 commands[dd]=[s,dd](const std::string& x){ return x.empty()?s->cmdMove(dd):gStr("\x1b[31mSorry, I don't understand.\x1b[0m"); };
         ongoingcmds={"pick","look","talk","put","take","walk","go","move","enter"};
+    }
+
+    // ── reset (mirrors Game.reset) ─────────────────────────────
+    // Builds a fresh island and places the player, with no screen output of
+    // its own. Called from setup() (full intro) and from cmdLoad() (silent,
+    // no intro — mirrors Python's self.reset(), which runs on the same
+    // long-lived Game object both at startup and to restore state before a
+    // load replay — never allocating a fresh Engine the way "play again" does).
+    void reset() {
+        World* w = new World({10,10});
+        auto* table  = new Table(w->positions[{5,5}]);
+        new Apple(table);
+        auto* box = new LockedBox(table);
+        new PasswordNote(box,PASSWORDS[0]);
+        new StartingMan(w->positions[{4,5}]);
+        new StartingPath(w,{6,5},{8,5});
+        for(int x=0;x<10;++x) new StartingDitch(w->positions[{x,6}],2);
+        for(int x=0;x<6;++x) for(int y=7;y<10;++y) w->inside({x,y},"village","in");
+        new StartingHorse(w->positions[{7,5}], w->positions[{7,7}], "I jump over the \x1b[1m\x1b[38;5;136mditch\x1b[0m on the horse.");
+        new StartingForest(w->positions[{7,4}], w->positions[{7,5}]);
+        new MainDevice(w->positions[{7,7}]);
+        auto* cwall = new ContainerWall(w->positions[{9,5}],4);
+        new Coin(cwall);
+        auto* archway = new Archway(w->positions[{6,7}]);
+        new Watchman(archway, w->positions[{7,7}]);
+        w->positions[{6,7}]->point("village","","","west");
+        w->positions[{5,7}]->point("archway","leading out of the village","","east","archway");
+        for(int y=8;y<10;++y) new NormalWall(w->positions[{6,y}],3);
+        auto* house = new House(w->positions[{5,8}],w->positions[{5,7}]);
+        new JokeMan(house->positions[{1,0}], {
+            "Hi, my name is Transylvanian Cross-Country Discombobulating Green Apple Cooker Rajuson B. B. Jeff Herfet. (try talking to me again)",
+            "Look! I'm inside a house! Hey, have you ever seen a house before? (try talking to me again)",
+            "Woooo! I'm flying! Yay! (try talking to me again)",
+            "My name is Jeff! (try talking to me again)",
+            "A, b, c, d, e, f, g ... w, x, y, and z! Now I know my ABC, I can finally learn my numbers. Hey, do you know numbers? I've heard they're really hard to learn. (try talking to me again)",
+            "Look! It's a polar bear! Ha, I tricked you! (try talking to me again)",
+            "I love eating baby food, but dog biscuits are also not bad. (try talking to me again)",
+            "Hello. This is my house, I live here. You're welcome back at any time! (try talking to me again)"
+        }, w->positions[{4,7}]);
+        new SandPatch(w->positions[{3,5}],
+            [](ContainerObject* pos)->GameObject*{ return new CloakChest(pos); }, "I uncover a \x1b[1m\x1b[38;5;136mchest\x1b[0m!");
+        new Ship(w->positions[{9,7}], w->positions[{8,7}]);
+        Person* p = new Person(w->positions[{5,5}]);
+        world = w;
+        person = p;
         updateIdx();
+        donecommands=0;
+    }
+
+    // ── setup (mirrors Game.setup) ─────────────────────────────
+    // Resets the world and shows the title/intro/tips screens, finally
+    // looking around. Called once from initGame() and again by main()'s
+    // restart loop after "play again" (Python calls it again on the same
+    // Game object; C++ instead allocates a fresh Engine each restart).
+    void setup() {
+        cls();
+        reset();
+        pyprint(
+            "\x1b[1m\x1b[32m\xe2\x95\x94\xe2\x95\x90\xe2\x95\x90\xe2\x95\x90\xe2\x95\x90\xe2\x95\x90\xe2\x95\x90\xe2\x95\x90\xe2\x95\x90\xe2\x95\x90\xe2\x95\x90\xe2\x95\x90\xe2\x95\x90\xe2\x95\x90\xe2\x95\x90\xe2\x95\x90\xe2\x95\x90\xe2\x95\x90\xe2\x95\x90\xe2\x95\x90\xe2\x95\x90\xe2\x95\x90\xe2\x95\x90\xe2\x95\x90\xe2\x95\x90\xe2\x95\x90\xe2\x95\x97\n"
+            "\xe2\x95\x91 QUEST FOR THE FIVE KEYS \xe2\x95\x91\n"
+            "\xe2\x95\x91\x1b[39m\x1b[3m A text adventure game\x1b[32m\x1b[23m   \xe2\x95\x91\n"
+            "\xe2\x95\x9a\xe2\x95\x90\xe2\x95\x90\xe2\x95\x90\xe2\x95\x90\xe2\x95\x90\xe2\x95\x90\xe2\x95\x90\xe2\x95\x90\xe2\x95\x90\xe2\x95\x90\xe2\x95\x90\xe2\x95\x90\xe2\x95\x90\xe2\x95\x90\xe2\x95\x90\xe2\x95\x90\xe2\x95\x90\xe2\x95\x90\xe2\x95\x90\xe2\x95\x90\xe2\x95\x90\xe2\x95\x90\xe2\x95\x90\xe2\x95\x90\xe2\x95\x90\xe2\x95\x9d\x1b[0m\n"
+            "\n");
+        emit("\x1b[1m\x1b[31m[Press Enter to continue]\x1b[0m");
+        std::string dummy; readline(dummy, "\x1b[1m\x1b[31m[Press Enter to continue]\x1b[0m");
+
+        cls();
+        pyprint(
+            "You are one of the world's foremost research scientists. After years of work, "
+            "you had finally completed the greatest experiment of your career.\n\n"
+            "Before you could present your discovery, your rivals stole the results of your experiment "
+            "and fled to a remote island. There they took extraordinary measures to ensure no one could recover your work.\n\n"
+            "The complete result is sealed inside a high-security electronic device of your own making "
+            "that you were using to store your work. It can only be opened by entering \x1b[1m\x1b[32mfive different passwords\x1b[0m, "
+            "each hidden somewhere on the island. Beware! Enter a single incorrect password and the device will "
+            "destroy itself, taking your experiment with it forever.\n\n"
+            "The island is inhabited. Its people know nothing of your rivals' actions, but some may help you "
+            "if you can persuade them, while others may have something you need.\n\n"
+            "Can you recover the five passwords, unlock the device, and reclaim your stolen work? "
+            "Your success depends entirely on your ingenuity.\n\n"
+            "Your fate-and the fate of your experiment-is now in your hands.\n");
+        emit("\x1b[1m\x1b[31m[Press Enter to continue]\x1b[0m");
+        readline(dummy, "\x1b[1m\x1b[31m[Press Enter to continue]\x1b[0m");
+
+        cls();
+        pyprint(
+            "To help you in your quest, here are some tips:\n\n"
+            "Always examine objects, however unrelated you think they are.\n\n"
+            "Always follow paths to their end.\n\n"
+            "Don't go anywhere you can't see anything around, you will just waste commands.\n\n"
+            "Every NPC in the game does something, to help you, or to kill you.\n\n"
+            "When talking to an NPC, you can only select one of the numbered options given by the game "
+            "by typing the exact number you want. For example, you might be given a prompt like options:1/2/3. "
+            "Then, you will be able to select 1, 2, or 3.\n\n"
+            "If a command does not work, try using another word with the same meaning.\n\n"
+            "Moving in any direction always also looks around. You don't need to retype look after going somewhere.\n\n"
+            "You can always interact with an object if it is in view (listed in 'look').\n");
+        emit("\x1b[1m\x1b[31m[Press Enter to continue]\x1b[0m");
+        readline(dummy, "\x1b[1m\x1b[31m[Press Enter to continue]\x1b[0m");
+
+        cls();
+        pyprint(
+            "When interacting with an object in any way (pick up, examine, talk to, etc), you don't need to type the "
+            "full name. You can usually use only one word. For example, take box instead of take locked box, "
+            "exam device instead of exam electronic device, etc.\n\n"
+            "If an object inside a container is not listed in look around (if it is inside a container inside another container), "
+            "you can access it with \x1b[1mcommand\x1b[0m \x1b[3mobject in container\x1b[0m. For example, take apple will not work when the apple "
+            "is inside a box which is on a table, but take apple from box will.\n\n"
+            "You can also use abbreviations for commands, like exam instead of examine, talk instead of talk to, etc. "
+            "They are also given in the help.\n\n"
+            "You are allowed to use a maximum of "+std::to_string(maxcommands)+" commands, including 'help'. After that, it will be too late "
+            "to recover your work and you will have lost the game.\n\n"
+            "Type 'moves' or 'commands' at any time to see the number of commands you have left.\n\n"
+            "Type 'save' to export a file from which you can later continue play. Load a saved file with 'load'.\n\n"
+            "Quitting is for losers, but you can do it by typing 'quit'.\n\n"
+            "Good luck!\n");
+        emit("\x1b[1m\x1b[31m[Press Enter to continue]\x1b[0m");
+        readline(dummy, "\x1b[1m\x1b[31m[Press Enter to continue]\x1b[0m");
+
+        cls();
+        auto il=cmdLook();
+        if(il.isStr()) pyprint(il.asStr()+"\n");
     }
 
     // ── generic holding accessor ─────────────────────────────
@@ -1942,6 +2081,162 @@ public:
             auto res=inv[keyname]->use(person,obj); updateIdx(); return res;
         }
         auto res=obj->closeContainer(person); updateIdx(); return res;
+    }
+
+    // ── prompt (mirrors Game.prompt: yes/no, 3 tries, then default) ──
+    static std::string stripStr(const std::string& s) {
+        size_t a=0,b=s.size();
+        while(a<b&&isspace((unsigned char)s[a])) ++a;
+        while(b>a&&isspace((unsigned char)s[b-1])) --b;
+        return s.substr(a,b-a);
+    }
+    bool promptYN(const std::string& promptText, bool defaultVal=false) {
+        std::string ans; emit(promptText); readline(ans, promptText);
+        std::string low=stripStr(ans);
+        std::transform(low.begin(),low.end(),low.begin(),::tolower);
+        if(low.empty()) return defaultVal;
+        char c=low[0];
+        if(c=='y') return true;
+        if(c=='n') return false;
+        for(int i=0;i<2;++i) {
+            std::string p2="\x1b[1m\x1b[31m[invalid input ("+std::to_string(i+2)+"/3)\x1b[0m "+promptText;
+            std::string ans2; emit(p2); readline(ans2, p2);
+            // Mirrors Python exactly: retries compare the raw (unstripped, uncased) answer.
+            if(ans2=="y") return true;
+            if(ans2=="n") return false;
+        }
+        return defaultVal;
+    }
+
+    // ── getFile (mirrors Game.getfile) ────────────────────────
+    static std::string expandUser(const std::string& p) {
+        if(p.empty()||p[0]!='~') return p;
+        if(p.size()==1||p[1]=='/') {
+            const char* home=std::getenv("HOME");
+            return (home?std::string(home):std::string())+p.substr(1);
+        }
+        return p; // "~username" form is left unexpanded (rare edge case)
+    }
+    std::optional<std::string> getFile(const std::string& filefor) {
+        std::string promptText=std::string("\x1b[1m")+(filefor=="save"?"Save":"Load")+" File: \x1b[0m";
+        std::string raw; emit(promptText); readline(raw, promptText);
+        std::string fn=stripStr(raw);
+        if(fn.empty()) return std::nullopt;
+        fn=expandUser(fn);
+        std::error_code ec;
+        std::filesystem::path abs=std::filesystem::absolute(fn, ec);
+        fn=abs.string();
+        bool exists=std::filesystem::exists(fn, ec);
+        bool isDir=std::filesystem::is_directory(fn, ec);
+        if(filefor=="save"&&exists) {
+            if(isDir) { pyprint("\x1b[31merror: already existing directory\x1b[0m\n"); return std::nullopt; }
+            if(!promptYN("\x1b[1m\x1b[33mfile already exists. overwrite? (y/N): \x1b[0m")) return getFile(filefor);
+            return fn;
+        } else if(filefor=="load"&&!exists) {
+            pyprint("\x1b[31merror: file does not exist\x1b[0m\n");
+            return std::nullopt;
+        } else if(filefor=="load"&&isDir) {
+            pyprint("\x1b[31merror: is a directory\x1b[0m\n");
+            return std::nullopt;
+        }
+        return fn;
+    }
+
+    // ── cmdQuit (mirrors Game.quit) ────────────────────────────
+    GameResult cmdQuit() {
+        if(!gHistory.empty()&&promptYN("\x1b[1m\x1b[33msave game before quitting? (y/N): \x1b[0m")) {
+            // Mirrors Python's `if saveoutput := self.save(): printoutput(saveoutput)`.
+            auto saveResult=cmdSave();
+            if(saveResult.isStr()&&!saveResult.asStr().empty()) pyprint(saveResult.asStr()+"\n");
+        }
+        return gEnd("","bye",false);
+    }
+
+    // ── cmdSave (mirrors Game.save) ───────────────────────────
+    // Returns a default (None-kind) GameResult for the "getfile canceled"
+    // case, mirroring Python's bare `return` there (real None) rather than a
+    // falsy string — cmdQuit() needs to tell them apart to reproduce
+    // printoutput(self.save()) printing the literal text "None" in that case.
+    GameResult cmdSave() {
+        auto fn=getFile("save");
+        if(!fn) return GameResult{};
+        std::ofstream file(*fn, std::ios::binary);
+        if(!file) return gStr("\x1b[31merror: could not open file\x1b[0m");
+        std::string joined;
+        for(size_t i=0;i<gHistory.size();++i){ if(i) joined+="\n"; joined+=gHistory[i]; }
+        file.write(joined.data(), (std::streamsize)joined.size());
+        if(!file) return gStr("\x1b[31merror: write failed\x1b[0m");
+        return gStr("\x1b[32m\x1b[3msaved game\x1b[0m");
+    }
+
+    // ── cmdLoad (mirrors Game.load) ───────────────────────────
+    // Replays a saved command transcript through parse(), duplicating loop()'s
+    // own EndGame/move-counting handling exactly (Python does not factor this
+    // into a shared helper either — it is inlined twice, in loop() and here).
+    GameResult cmdLoad() {
+        if(!gHistory.empty()&&!promptYN("\x1b[1m\x1b[33mdiscard current game? (y/N): \x1b[0m"))
+            return gStr("");
+        auto fnOpt=getFile("load");
+        if(!fnOpt) return gStr("");
+        std::ifstream file(*fnOpt, std::ios::binary);
+        // Python's load() wraps this whole section in try/except, and now (unlike
+        // save()) exits the whole program on failure via exitwith(); getfile()
+        // already validated existence for "load", so this can only fail here on
+        // a rare race/permission error — mirror that hard-exit behavior exactly.
+        if(!file) exitWithError("\x1b[31merror: could not open file\x1b[0m");
+        std::string content((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+        std::vector<std::string> lines;
+        { size_t start=0; for(size_t i=0;i<=content.size();++i) if(i==content.size()||content[i]=='\n') { lines.push_back(content.substr(start,i-start)); start=i+1; } }
+        reset();
+        pyprint("\x1b[H\x1b[2J\x1b[3J");
+        { auto lookRes=cmdLook(); if(lookRes.isStr()) pyprint(lookRes.asStr()+"\n"); }
+        for(const auto& command : lines) {
+            pyprint("\n> "+command+"\n\n");
+            auto output=parse(command);
+            if(output.isEnd()) {
+                if(output.eg.description.empty()&&!output.eg.win) { pyprint(output.eg.endmessage+"\n"); return gStr(""); }
+                pyprint("\x1b[H\x1b[2J\x1b[3J");
+                pyprint("\x1b[3m"+output.eg.description+"\x1b[0m\n\n"+output.eg.endmessage+"\n\n"+
+                    (output.eg.win?"\x1b[1m\x1b[32mYOU WIN!\x1b[0m":"\x1b[1m\x1b[31mYOU LOSE.\x1b[0m")+"\n");
+                bool playagain=false;
+                while(true) {
+                    std::string pa; emit("\x1b[1m\x1b[32mDo you want to play again? (yes/no): \x1b[0m");
+                    readline(pa, "\x1b[1m\x1b[32mDo you want to play again? (yes/no): \x1b[0m");
+                    std::string palow=stripStr(pa); std::transform(palow.begin(),palow.end(),palow.begin(),::tolower);
+                    if(palow=="yes"){ playagain=true; break; }
+                    if(palow=="no"){ playagain=false; break; }
+                    pyprint("That is not a valid option.\n\n");
+                }
+                if(playagain) break; // mirrors Python: breaks the replay loop only, does not re-run setup()
+                pyprint("\nbye\n");
+                return gStr("");
+            }
+            if(output.isStr()&&!output.asStr().empty()) {
+                pyprint(output.asStr()+"\n");
+                int remain=maxcommands-donecommands-1;
+                if(remain>0&&remain<=20) pyprint("\n\n\x1b[31mYou only have "+std::to_string(remain)+" "+(remain!=1?"commands":"command")+" left!\x1b[0m\n");
+                else if(remain==0) pyprint("\n\n\x1b[31mYou have 0 commands left!\x1b[0m\n");
+                std::string clow=stripStr(command); std::transform(clow.begin(),clow.end(),clow.begin(),::tolower);
+                if(clow!="moves"&&clow!="commands"&&output.asStr()!="\x1b[31mSorry, I don't understand.\x1b[0m"&&output.asStr()!="Time passes...") {
+                    if(++donecommands==maxcommands) {
+                        pyprint("\n\x1b[31mOh no! It is too late. Your rivals have come back to the island and destroyed the device! You have now lost your hard work forever.\x1b[0m\n\n");
+                        bool playagain=false;
+                        while(true) {
+                            std::string pa; emit("\x1b[1m\x1b[32mDo you want to play again? (yes/no): \x1b[0m");
+                            readline(pa, "\x1b[1m\x1b[32mDo you want to play again? (yes/no): \x1b[0m");
+                            std::string palow=stripStr(pa); std::transform(palow.begin(),palow.end(),palow.begin(),::tolower);
+                            if(palow=="yes"){ playagain=true; break; }
+                            if(palow=="no"){ playagain=false; break; }
+                            pyprint("That is not a valid option.\n\n");
+                        }
+                        if(playagain) break;
+                        pyprint("\nbye\n");
+                        return gStr("");
+                    }
+                }
+            }
+        }
+        return gStr("");
     }
 
     // ── cmdHelp ──────────────────────────────────────────────
@@ -2380,6 +2675,7 @@ public:
         while(!line.empty()&&(line.front()==' '||line.front()=='\t')) line=line.substr(1);
         while(!line.empty()&&(line.back()==' '||line.back()=='\t'||line.back()=='\r'||line.back()=='\n')) line.pop_back();
         if(line.empty()) return gStr("Time passes...");
+        if(line!="save"&&line!="load"&&line!="quit") gHistory.push_back(line);
         std::string low=line;
         std::transform(low.begin(),low.end(),low.begin(),::tolower);
 
@@ -2417,97 +2713,8 @@ public:
 // main
 // ─────────────────────────────────────────────────────────────
 static Engine* initGame() {
-    cls();
-    World* world = new World({10,10});
-    auto* table  = new Table(world->positions[{5,5}]);
-    new Apple(table);
-    auto* box = new LockedBox(table);
-    new PasswordNote(box,PASSWORDS[0]);
-    new StartingMan(world->positions[{4,5}]);
-    new StartingPath(world,{6,5},{8,5});
-    for(int x=0;x<10;++x) new StartingDitch(world->positions[{x,6}],2);
-    for(int x=0;x<6;++x) for(int y=7;y<10;++y) world->inside({x,y},"village","in");
-    new StartingHorse(world->positions[{7,5}], world->positions[{7,7}], "I jump over the \x1b[1m\x1b[38;5;136mditch\x1b[0m on the horse.");
-    new StartingForest(world->positions[{7,4}], world->positions[{7,5}]);
-    new MainDevice(world->positions[{7,7}]);
-    auto* cwall = new ContainerWall(world->positions[{9,5}],4);
-    new Coin(cwall);
-    auto* archway = new Archway(world->positions[{6,7}]);
-    new Watchman(archway, world->positions[{7,7}]);
-    world->positions[{6,7}]->point("village","","","west");
-    world->positions[{5,7}]->point("archway","leading out of the village","","east","archway");
-    for(int y=8;y<10;++y) new NormalWall(world->positions[{6,y}],3);
-    auto* house = new House(world->positions[{5,8}],world->positions[{5,7}]);
-    new JokeMan(house->positions[{1,0}], {
-        "Hi, my name is Transylvanian Cross-Country Discombobulating Green Apple Cooker Rajuson B. B. Jeff Herfet. (try talking to me again)",
-        "Look! I'm inside a house! Hey, have you ever seen a house before? (try talking to me again)",
-        "Woooo! I'm flying! Yay! (try talking to me again)",
-        "My name is Jeff! (try talking to me again)",
-        "A, b, c, d, e, f, g ... w, x, y, and z! Now I know my ABC, I can finally learn my numbers. Hey, do you know numbers? I've heard they're really hard to learn. (try talking to me again)",
-        "Look! It's a polar bear! Ha, I tricked you! (try talking to me again)",
-        "I love eating baby food, but dog biscuits are also not bad. (try talking to me again)",
-        "Hello. This is my house, I live here. You're welcome back at any time! (try talking to me again)"
-    }, world->positions[{4,7}]);
-    new SandPatch(world->positions[{3,5}],
-        [](ContainerObject* pos)->GameObject*{ return new CloakChest(pos); }, "I uncover a \x1b[1m\x1b[38;5;136mchest\x1b[0m!");
-    new Ship(world->positions[{9,7}], world->positions[{8,7}]);
-    Person* person = new Person(world->positions[{5,5}]);
-    Engine* engine = new Engine(world, person);
-
-    pyprint(
-        "You are one of the world's foremost research scientists. After years of work, "
-        "you had finally completed the greatest experiment of your career.\n\n"
-        "Before you could present your discovery, your rivals stole the results of your experiment "
-        "and fled to a remote island. There they took extraordinary measures to ensure no one could recover your work.\n\n"
-        "The complete result is sealed inside a high-security electronic device of your own making "
-        "that you were using to store your work. It can only be opened by entering \x1b[1m\x1b[32mfive different passwords\x1b[0m, "
-        "each hidden somewhere on the island. Beware! Enter a single incorrect password and the device will "
-        "destroy itself, taking your experiment with it forever.\n\n"
-        "The island is inhabited. Its people know nothing of your rivals' actions, but some may help you "
-        "if you can persuade them, while others may have something you need.\n\n"
-        "Can you recover the five passwords, unlock the device, and reclaim your stolen work? "
-        "Your success depends entirely on your ingenuity.\n\n"
-        "Your fate-and the fate of your experiment-is now in your hands.\n");
-    emit("\x1b[1m\x1b[31m[Press Enter to continue]\x1b[0m");
-    std::string dummy; readline(dummy, "\x1b[1m\x1b[31m[Press Enter to continue]\x1b[0m");
-
-    cls();
-    pyprint(
-        "To help you in your quest, here are some tips:\n\n"
-        "Always examine objects, however unrelated you think they are.\n\n"
-        "Always follow paths to their end.\n\n"
-        "Don't go anywhere you can't see anything around, you will just waste commands.\n\n"
-        "Every NPC in the game does something, to help you, or to kill you.\n\n"
-        "When talking to an NPC, you can only select one of the numbered options given by the game "
-        "by typing the exact number you want. For example, you might be given a prompt like options:1/2/3. "
-        "Then, you will be able to select 1, 2, or 3.\n\n"
-        "If a command does not work, try using another word with the same meaning.\n\n"
-        "Moving in any direction always also looks around. You don't need to retype look after going somewhere.\n\n"
-        "You can always interact with an object if it is in view (listed in 'look').\n");
-    emit("\x1b[1m\x1b[31m[Press Enter to continue]\x1b[0m");
-    readline(dummy, "\x1b[1m\x1b[31m[Press Enter to continue]\x1b[0m");
-
-    cls();
-    pyprint(
-        "When interacting with an object in any way (pick up, examine, talk to, etc), you don't need to type the "
-        "full name. You can usually use only one word. For example, take box instead of take locked box, "
-        "exam device instead of exam electronic device, etc.\n\n"
-        "If an object inside a container is not listed in look around (if it is inside a container inside another container), "
-        "you can access it with \x1b[1mcommand\x1b[0m \x1b[3mobject in container\x1b[0m. For example, take apple will not work when the apple "
-        "is inside a box which is on a table, but take apple from box will.\n\n"
-        "You can also use abbreviations for commands, like exam instead of examine, talk instead of talk to, etc. "
-        "They are also given in the help.\n\n"
-        "You are allowed to use a maximum of "+std::to_string(engine->maxcommands)+" commands, including 'help'. After that, it will be too late "
-        "to recover your work and you will have lost the game.\n\n"
-        "Type 'moves' or 'commands' at any time to see the number of commands you have left.\n\n"
-        "Quitting is for losers, but you can do it by typing 'quit'.\n\n"
-        "Good luck!\n");
-    emit("\x1b[1m\x1b[31m[Press Enter to continue]\x1b[0m");
-    readline(dummy, "\x1b[1m\x1b[31m[Press Enter to continue]\x1b[0m");
-
-    cls();
-    auto il=engine->parse("look");
-    if(il.isStr()) pyprint(il.asStr()+"\n");
+    Engine* engine = new Engine();
+    engine->setup();
     return engine;
 }
 
@@ -2534,8 +2741,8 @@ static std::string pyReprQuote(const std::string& s) {
 
 int main(int argc, char** argv) {
     std::signal(SIGINT, [](int){ std::exit(1); });
-    std::string fileOpt; bool fileSet=false; bool noColorSet=false; bool noAnsiSet=false;
-    if(!parseArgs(argc, argv, fileOpt, fileSet, noColorSet, noAnsiSet)) return 1;
+    std::string fileOpt; bool fileSet=false; bool noColorSet=false; bool noAnsiSet=false; bool loadSet=false;
+    if(!parseArgs(argc, argv, fileOpt, fileSet, noColorSet, noAnsiSet, loadSet)) return 1;
     ansiEnabled = !noAnsiSet;
     colorEnabled = ansiEnabled && !noColorSet;
     if(fileSet) {
@@ -2569,8 +2776,11 @@ int main(int argc, char** argv) {
         if(pa=="yes"){ restart=true; return true; }
         pyprint("\nbye\n"); return true;
     };
+    bool firstRound=true;
     while(true) {
         Engine* engine = initGame();
+        if(firstRound && loadSet) engine->parse("load");
+        firstRound=false;
         bool restart=false;
         while(true) {
             emit("\n> ");

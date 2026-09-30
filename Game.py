@@ -82,18 +82,14 @@ exitwith = lambda message: [print(message), exit(1)]
 
 def argparse(options, args):
     """Parse command-line arguments against a table of allowed options.
-
     The value stored for each option in `options` says how it behaves:
         True    option takes a single value (--name value or --name=value)
         False   option is a flag and takes no value
         []      option takes any number of values and may repeat
-
     Exits with status 1 and an error message on any invalid usage.
-
     Args:
         options: mapping of option name (without "--") to its kind, see above.
         args: the raw argument strings (normally sys.argv[1:]).
-
     Returns:
         A dict with the same keys: flags become True/False, single-value options
         become their value (or None when omitted) and list options their values.
@@ -153,8 +149,13 @@ def argparse(options, args):
     return options
 
 
-# --log-file takes a value; --no-color and --no-ansi are flags.
-options = {"log-file": True, "no-color": False, "no-ansi": False}
+# --log-file takes a value; --no-color, --no-ansi, and --load are flags.
+options = {
+    "log-file": True,
+    "no-color": False,
+    "no-ansi": False,
+    "load": False,
+}
 args = sys.argv[1:]
 options = argparse(options, args)
 use_color = not options["no-color"]
@@ -192,7 +193,6 @@ else:
 
 def printoutput(string="", *args, **kwargs):
     """Print a line of game output, adapting it to the --no-color/--no-ansi options.
-
     The text is also appended to the log file (with every ANSI code removed) when
     one was requested. Extra arguments are passed straight through to print().
     """
@@ -214,9 +214,7 @@ def printoutput(string="", *args, **kwargs):
 
 def getinput(string="", *args, **kwargs):
     """Prompt the user like input() while honouring the --no-color/--no-ansi options.
-
     When logging, both the prompt and the user's reply are recorded in the log file.
-
     Returns:
         The raw string the user typed.
     """
@@ -240,15 +238,15 @@ def getinput(string="", *args, **kwargs):
 
 class WorldPosition:
     """A single cell of a World or InsideWorld grid.
-
     Tracks what is on the cell (holding), whether something blocks or guards it,
     whether an InsideWorld is attached to it and what should be described to the
     player when they look around from here (properties["points"]).
     """
+
     def __init__(self, world, position):
         """Args:
-            world: the World or InsideWorld this cell belongs to.
-            position: the (x, y) coordinates of this cell in that world.
+        world: the World or InsideWorld this cell belongs to.
+        position: the (x, y) coordinates of this cell in that world.
         """
         self.world = world
         self.worldposition = position
@@ -309,7 +307,6 @@ class WorldPosition:
 
     def point(self, highlightname, thing, plural, dir_, skip=None):
         """Add something the player can see from this cell without it being an object here.
-
         Args:
             highlightname: the highlighted word shown in the description.
             thing: the phrase that follows it ("to the forest"), or None.
@@ -331,9 +328,10 @@ class WorldPosition:
 
 class World:
     """The outdoor map: a rectangular grid of WorldPositions plus the paths on it."""
+
     def __init__(self, size):
         """Args:
-            size: (width, height) of the grid; a WorldPosition is created for each cell.
+        size: (width, height) of the grid; a WorldPosition is created for each cell.
         """
         self.positions = {}
         self.size = size
@@ -345,7 +343,6 @@ class World:
 
     def inside(self, position, place, insidereference, pluralreference=None):
         """Give a cell a description of what the player is "in" while standing on it.
-
         Args:
             position: (x, y) of the cell.
             place: the place name ("village").
@@ -359,7 +356,6 @@ class World:
 
     def pointall(self, position, highlightname, thing, plural, skip=None):
         """Make a thing visible from a cell and its neighbours through WorldPosition.point.
-
         Args:
             position: (x, y) of the cell the thing is at.
             highlightname: the highlighted word used in descriptions.
@@ -390,10 +386,10 @@ class World:
 
 class InsideWorld:
     """A smaller grid that is nested inside a cell of another world (a house, a ship, ...).
-
     It behaves like a World for movement and description, and like a normal object
     for its parent: it can be examined, entered and (rarely) moved or deleted.
     """
+
     def __init__(
         self,
         position,
@@ -404,14 +400,14 @@ class InsideWorld:
         exitfrom=None,
     ):
         """Args:
-            position: the parent WorldPosition this place sits on.
-            size: (width, height) of the inner grid.
-            exitpos: the parent WorldPosition the player ends up on when leaving.
-            startingpos: (x, y) inside this world where the player arrives.
-            exitablepositions: inner cells from which "exit" is allowed. Either an
-                explicit collection, "all", or "visible" (cells near exitfrom).
-                An empty collection means every cell allows exiting.
-            exitfrom: inner cells that automatically lead outside when walked onto.
+        position: the parent WorldPosition this place sits on.
+        size: (width, height) of the inner grid.
+        exitpos: the parent WorldPosition the player ends up on when leaving.
+        startingpos: (x, y) inside this world where the player arrives.
+        exitablepositions: inner cells from which "exit" is allowed. Either an
+            explicit collection, "all", or "visible" (cells near exitfrom).
+            An empty collection means every cell allows exiting.
+        exitfrom: inner cells that automatically lead outside when walked onto.
         """
         if exitablepositions is None:
             exitablepositions = set()
@@ -450,7 +446,6 @@ class InsideWorld:
 
     def inside(self, position, place, insidereference, pluralreference=None):
         """Give an inner cell a description of what the player is "in" while standing on it.
-
         Same arguments as World.inside.
         """
         self.positions[position].properties["inside"] = place
@@ -460,7 +455,6 @@ class InsideWorld:
 
     def pointall(self, position, highlightname, thing, plural, skip=None):
         """Make a thing visible from an inner cell and its neighbours through WorldPosition.point.
-
         Same arguments as World.pointall.
         """
         dirnames = {
@@ -515,13 +509,13 @@ class InsideWorld:
 
 class EndGame:
     """Returned by a command or a dialogue to finish the current round.
-
     Attributes:
         description: text shown first (in italics) describing what happened, or
             None to end silently.
         endmessage: the closing line shown after the description.
         win: True for a win, False for a loss (None when the player quit).
     """
+
     def __init__(self, description, endmessage, win):
         self.description = description
         self.endmessage = endmessage
@@ -530,9 +524,10 @@ class EndGame:
 
 class Object:
     """A plain object lying on a WorldPosition or inside a container."""
+
     def __init__(self, position):
         """Args:
-            position: the WorldPosition or container that holds this object.
+        position: the WorldPosition or container that holds this object.
         """
         self.position = position
         self.properties = {"type": "object"}
@@ -551,9 +546,10 @@ class Object:
 
 class ContainerObject:
     """An object that can hold other objects (table, box, chest, ...)."""
+
     def __init__(self, position):
         """Args:
-            position: the WorldPosition or container that holds this container.
+        position: the WorldPosition or container that holds this container.
         """
         self.position = position
         self.properties = {"type": "container"}
@@ -581,9 +577,10 @@ class ContainerObject:
 
 class BlockingObject:
     """An object that stops the player from walking onto its cell (wall, ditch, ...)."""
+
     def __init__(self, position):
         """Args:
-            position: the WorldPosition to occupy and block.
+        position: the WorldPosition to occupy and block.
         """
         self.position = position
         self.properties = {"type": "blocking-object"}
@@ -606,9 +603,10 @@ class BlockingObject:
 
 class BlockingContainerObject:
     """A blocking object that can also hold other objects."""
+
     def __init__(self, position):
         """Args:
-            position: the WorldPosition to occupy and block.
+        position: the WorldPosition to occupy and block.
         """
         self.position = position
         self.properties = {"type": "blocking-container"}
@@ -640,10 +638,11 @@ class BlockingContainerObject:
 
 class Note:
     """Something with text on it that the player can read (paper, book, sticky note, ...)."""
+
     def __init__(self, position, text):
         """Args:
-            position: the WorldPosition or container that holds the note.
-            text: what the player sees when reading it.
+        position: the WorldPosition or container that holds the note.
+        text: what the player sees when reading it.
         """
         self.position = position
         self.properties = {"type": "note"}
@@ -671,9 +670,10 @@ class Note:
 
 class NPC:
     """A non-player character. Subclasses add dialogues() and give() to react to the player."""
+
     def __init__(self, position):
         """Args:
-            position: the WorldPosition the NPC stands on.
+        position: the WorldPosition the NPC stands on.
         """
         self.position = position
         self.properties = {"type": "npc", "movable": False}
@@ -692,15 +692,15 @@ class NPC:
 
 class Path:
     """A straight line of cells on a world that the player can follow (a trail, a hallway).
-
     Paths are not held by cells; the world keeps them in its "paths" set and Game
     describes them as continuing in two directions.
     """
+
     def __init__(self, world, a, b):
         """Args:
-            world: the world the path is on.
-            a: (x, y) of one end of the path.
-            b: (x, y) of the other end (horizontal, vertical or diagonal from a).
+        world: the world the path is on.
+        a: (x, y) of one end of the path.
+        b: (x, y) of the other end (horizontal, vertical or diagonal from a).
         """
         self.world = world
         self.a = a
@@ -727,6 +727,7 @@ class Path:
 
 class StartingPath(Path):
     """The dirt trail leading east from the starting area."""
+
     def __init__(self, world, a, b):
         super().__init__(world, a, b)
         self.properties.update(
@@ -742,15 +743,15 @@ class StartingPath(Path):
 
 class StartingHorse(NPC):
     """The horse that carries the player over the ditch, once it has been fed an apple.
-
     Using it swaps the player and horse with jumpposition, so riding it a second
     time takes the player back.
     """
+
     def __init__(self, position, jumpposition, returnmessage):
         """Args:
-            position: where the horse starts.
-            jumpposition: the cell on the other side of the ditch.
-            returnmessage: what the player sees after riding.
+        position: where the horse starts.
+        jumpposition: the cell on the other side of the ditch.
+        returnmessage: what the player sees after riding.
         """
         super().__init__(position)
         self.jumpposition = jumpposition
@@ -778,7 +779,6 @@ class StartingHorse(NPC):
 
     def give(self, object_, person):
         """Accept an apple (which unlocks riding) and refuse everything else.
-
         Returns:
             A tuple as described in Game.give.
         """
@@ -798,7 +798,6 @@ class StartingHorse(NPC):
 
     def use(self, person):
         """Ride the horse to the other side of the ditch (or back).
-
         Returns:
             The message to show the player.
         """
@@ -817,14 +816,14 @@ class StartingHorse(NPC):
 
 class Watchman(NPC):
     """The guard of the archway leading out of the village.
-
     Only an invisible player can slip past. Anybody else is stopped, or shoved back
     to outposition when they are found on the wrong side.
     """
+
     def __init__(self, object_, outposition):
         """Args:
-            object_: the thing being guarded (the archway); the watchman stands on it.
-            outposition: the WorldPosition the player is shoved back to.
+        object_: the thing being guarded (the archway); the watchman stands on it.
+        outposition: the WorldPosition the player is shoved back to.
         """
         super().__init__(object_.position)
         self.object_ = object_
@@ -855,7 +854,6 @@ class Watchman(NPC):
 
     def guardtalk(self, person):
         """Called when the player tries to walk onto the guarded cell.
-
         Returns:
             (allowed, dialogue): whether the player may pass, and what is said.
         """
@@ -891,10 +889,10 @@ class Watchman(NPC):
 
 class OldLady(NPC):
     """An old lady looking for her son.
-
     Telling her the son is in the house ends the game. Giving her the card from the
     ship gets the player a folder with the fourth password in return.
     """
+
     def __init__(self, position):
         super().__init__(position)
         self.properties.update(
@@ -935,7 +933,6 @@ class OldLady(NPC):
 
     def dodone(self, thing):
         """Remember that the quest is over and pass the thing through.
-
         Used inside a dialogue tuple so the flag is set exactly when the reward is given.
         """
         self.done = True
@@ -973,14 +970,14 @@ class OldLady(NPC):
 
 class JokeMan(NPC):
     """A silly man inside the house who cycles through jokes and trades a password for baby food.
-
     Talking to him the first time also makes the old lady appear.
     """
+
     def __init__(self, position, talk, oldladyposition):
         """Args:
-            position: where the man stands.
-            talk: the lines he cycles through (the last entry is never used).
-            oldladyposition: where the old lady appears after the first conversation.
+        position: where the man stands.
+        talk: the lines he cycles through (the last entry is never used).
+        oldladyposition: where the old lady appears after the first conversation.
         """
         super().__init__(position)
         self.talk = talk
@@ -1036,9 +1033,9 @@ class JokeMan(NPC):
 
 class StartingMan(NPC):
     """The locksmith who opens the locked box in exchange for a coin.
-
     Hands out a Key that fits the box.
     """
+
     def __init__(self, position):
         super().__init__(position)
         self.properties.update(
@@ -1054,7 +1051,6 @@ class StartingMan(NPC):
 
     def dodone(self, thing):
         """Remember that the key has been handed out and pass the thing through.
-
         Used inside a dialogue tuple so the flag is set exactly when the key is given.
         """
         self.done = True
@@ -1203,10 +1199,11 @@ class StartingMan(NPC):
 
 class StartingDitch(BlockingObject):
     """The wide ditch that cannot be crossed on foot."""
+
     def __init__(self, position, width):
         """Args:
-            position: the cell it blocks.
-            width: width in meters shown by examine.
+        position: the cell it blocks.
+        width: width in meters shown by examine.
         """
         super().__init__(position)
         self.properties.update(
@@ -1223,10 +1220,11 @@ class StartingDitch(BlockingObject):
 
 class NormalWall(BlockingObject):
     """A plain stone wall that blocks a cell."""
+
     def __init__(self, position, height):
         """Args:
-            position: the cell it blocks.
-            height: height in meters; walls above 3 meters are also called "tall".
+        position: the cell it blocks.
+        height: height in meters; walls above 3 meters are also called "tall".
         """
         super().__init__(position)
         self.properties.update(
@@ -1244,10 +1242,11 @@ class NormalWall(BlockingObject):
 
 class ContainerWall(BlockingContainerObject):
     """A stone wall with a hidden gap between its blocks where objects are wedged."""
+
     def __init__(self, position, height):
         """Args:
-            position: the cell it blocks.
-            height: height in meters; walls above 3 meters are also called "tall".
+        position: the cell it blocks.
+        height: height in meters; walls above 3 meters are also called "tall".
         """
         super().__init__(position)
         self.properties.update(
@@ -1268,12 +1267,16 @@ class ContainerWall(BlockingContainerObject):
 
 class House(InsideWorld):
     """The small red house with a bedroom and a kitchen inside."""
+
     class BedRoom(InsideWorld):
         """The bedroom, containing a bed and a desk with a diary."""
+
         class Bed(ContainerObject):
             """A single bed with a colorful sheet."""
+
             class Sheet(Object):
                 """The sheet on the bed."""
+
                 def __init__(self, position):
                     super().__init__(position)
                     self.properties.update(
@@ -1299,8 +1302,10 @@ class House(InsideWorld):
 
         class Desk(ContainerObject):
             """A low wooden desk holding a diary."""
+
             class Book(Note):
                 """The diary, which reveals the second password."""
+
                 def __init__(self, position, text):
                     super().__init__(position, text)
                     self.properties.update(
@@ -1330,9 +1335,9 @@ class House(InsideWorld):
 
         def __init__(self, position, exitpos, startingpos=(0, 0)):
             """Args:
-                position: the cell of the house that this room sits on.
-                exitpos: the cell of the house the player returns to when leaving.
-                startingpos: where the player arrives inside the room.
+            position: the cell of the house that this room sits on.
+            exitpos: the cell of the house the player returns to when leaving.
+            startingpos: where the player arrives inside the room.
             """
             super().__init__(position, (1, 2), exitpos, startingpos)
             for pos in self.positions:
@@ -1345,8 +1350,10 @@ class House(InsideWorld):
 
     class Kitchen(InsideWorld):
         """The kitchen, containing a marble platform."""
+
         class Platform(ContainerObject):
             """A low marble platform."""
+
             def __init__(self, position):
                 super().__init__(position)
                 self.properties.update(
@@ -1360,9 +1367,9 @@ class House(InsideWorld):
 
         def __init__(self, position, exitpos, startingpos=(0, 0)):
             """Args:
-                position: the cell of the house that this room sits on.
-                exitpos: the cell of the house the player returns to when leaving.
-                startingpos: where the player arrives inside the room.
+            position: the cell of the house that this room sits on.
+            exitpos: the cell of the house the player returns to when leaving.
+            startingpos: where the player arrives inside the room.
             """
             super().__init__(position, (1, 2), exitpos, startingpos)
             for pos in self.positions:
@@ -1374,8 +1381,8 @@ class House(InsideWorld):
 
     def __init__(self, position, exitpos):
         """Args:
-            position: the world cell the house stands on.
-            exitpos: the world cell the player ends up on when leaving the house.
+        position: the world cell the house stands on.
+        exitpos: the world cell the player ends up on when leaving the house.
         """
         super().__init__(position, (2, 2), exitpos, (1, 0))
         for pos in self.positions:
@@ -1396,10 +1403,13 @@ class House(InsideWorld):
 
 class Ship(InsideWorld):
     """The big steel ship, with a cabin holding a note room and the good man's room."""
+
     class Cabin(InsideWorld):
         """The ship's cabin: a long hallway with two rooms leading off it."""
+
         class Hallway(Path):
             """The long hallway running through the cabin."""
+
             def __init__(self, world, a, b):
                 super().__init__(world, a, b)
                 self.properties.update(
@@ -1412,8 +1422,10 @@ class Ship(InsideWorld):
 
         class ShipNoteRoom(InsideWorld):
             """A small dark room with a table holding the card for the old lady."""
+
             class ShipNote(Note):
                 """The folded card that tells the old lady her son is on the ship."""
+
                 def __init__(self, position, text):
                     super().__init__(position, text)
                     self.properties.update(
@@ -1429,6 +1441,7 @@ class Ship(InsideWorld):
 
             class ShipTable(ContainerObject):
                 """The table in the note room."""
+
                 def __init__(self, position):
                     super().__init__(position)
                     self.properties.update(
@@ -1460,8 +1473,10 @@ class Ship(InsideWorld):
 
         class ManRoom(InsideWorld):
             """A large room with a cheerful man in a uniform."""
+
             class GoodMan(NPC):
                 """The cheerful man in the ship's room."""
+
                 def __init__(self, position):
                     super().__init__(position)
                     self.properties.update(
@@ -1575,6 +1590,7 @@ class Ship(InsideWorld):
 
 class BabyFood(Object):
     """Mushy baby food, which the man in the house wants in exchange for a password."""
+
     def __init__(self, position):
         super().__init__(position)
         self.properties.update(
@@ -1590,8 +1606,10 @@ class BabyFood(Object):
 
 class StartingForest(InsideWorld):
     """The forest north of the starting area: a stream, a spade, trees, a note, and a hut."""
+
     class Trees(Object):
         """The thick trees."""
+
         def __init__(self, position):
             super().__init__(position)
             self.properties.update(
@@ -1607,6 +1625,7 @@ class StartingForest(InsideWorld):
 
     class Stream(Object):
         """A narrow stream."""
+
         def __init__(self, position):
             super().__init__(position)
             self.properties.update(
@@ -1615,6 +1634,7 @@ class StartingForest(InsideWorld):
 
     class Hut(InsideWorld):
         """A small hut with a table holding baby food."""
+
         def __init__(self, position, exitpos):
             super().__init__(position, (1, 1), exitpos, (0, 0))
             for pos in self.positions:
@@ -1628,13 +1648,17 @@ class StartingForest(InsideWorld):
                 }
             )
             BabyFood(Table(self.positions[(0, 0)]))
-    
+
     class Branch(Note):
         """A fallen branch with a code showing the fifth password
         in the first letter of every alternate word (number words
         are actually numbers)"""
+
         def __init__(self, position):
-            super().__init__(position, "The text is scratched on the fallen branch:\n" + LAST_PASSWD_CODE)
+            super().__init__(
+                position,
+                "The text is scratched on the fallen branch:\n" + LAST_PASSWD_CODE,
+            )
             self.properties.update(
                 {
                     "movable": False,
@@ -1668,6 +1692,7 @@ class StartingForest(InsideWorld):
 
 class Archway(Object):
     """The large concrete archway leading out of the village."""
+
     def __init__(self, position):
         super().__init__(position)
         self.properties.update(
@@ -1683,22 +1708,23 @@ class Archway(Object):
 
 class CodePaper(Note):
     """A piece of paper with a password written as letter and digit codes.
-
     Each letter becomes let<N> (a=1, b=2, ...) and each digit becomes num<d>, all
     joined with "-".
     """
+
     def __init__(self, position, passwd):
         """Args:
-            position: the position or container that holds the paper.
-            passwd: the password to encode on the paper.
+        position: the position or container that holds the paper.
+        passwd: the password to encode on the paper.
         """
+
         def numify(text):
             """Encode a password as the letter/digit code shown on the paper."""
             ans = []
             for char in text:
                 try:
                     int(char)
-                except:
+                except Exception:
                     ans.append(f'let{str(ord(char.lower()) - ord("a") + 1)}')
                 else:
                     ans.append(f"num{char}")
@@ -1719,6 +1745,7 @@ class CodePaper(Note):
 
 class PasswdFolder(ContainerObject):
     """A folder that can be opened and closed and holds the sticky note."""
+
     def __init__(self, position):
         super().__init__(position)
         self.properties.update(
@@ -1744,10 +1771,11 @@ class PasswdFolder(ContainerObject):
 
 class PasswdStickyNote(Note):
     """A sticky note with a password on it."""
+
     def __init__(self, position, passwd):
         """Args:
-            position: the position or container that holds the sticky note.
-            passwd: the password written on it.
+        position: the position or container that holds the sticky note.
+        passwd: the password written on it.
         """
         super().__init__(position, f"'{passwd}' is written on the sticky note.")
         self.properties.update(
@@ -1762,10 +1790,11 @@ class PasswdStickyNote(Note):
 
 class PasswordNote(Note):
     """A dusty old note with a password on it."""
+
     def __init__(self, position, passwd):
         """Args:
-            position: the position or container that holds the note.
-            passwd: the password written on it.
+        position: the position or container that holds the note.
+        passwd: the password written on it.
         """
         super().__init__(position, f"The note shows the text '{passwd}'.")
         self.properties.update(
@@ -1775,6 +1804,7 @@ class PasswordNote(Note):
 
 class Table(ContainerObject):
     """A heavy wooden table that things can be put on."""
+
     def __init__(self, position):
         super().__init__(position)
         self.properties.update(
@@ -1792,6 +1822,7 @@ class Table(ContainerObject):
 
 class LockedBox(ContainerObject):
     """A strong iron box that can be locked and unlocked with a key."""
+
     def __init__(self, position):
         super().__init__(position)
         self.lock()
@@ -1820,15 +1851,16 @@ class LockedBox(ContainerObject):
 
 class MainDevice(ContainerObject):
     """The electronic device holding the experiment's result.
-
     Contains the lights showing how many passwords were accepted, and a button that
     asks for a password when pressed.
     """
+
     class Button:
         """The red button. Pressing it prompts for a password."""
+
         def __init__(self, device):
             """Args:
-                device: the MainDevice the button is on.
+            device: the MainDevice the button is on.
             """
             self.position = device
             self.properties = {"type": "button"}
@@ -1858,10 +1890,8 @@ class MainDevice(ContainerObject):
 
         def press(self, person):
             """Prompt for a password and react to it.
-
             A wrong or repeated password destroys the device (loss). Entering all of the
             passwords opens it (win). Otherwise another light is turned on.
-
             Returns:
                 An EndGame for a win or loss, or a message.
             """
@@ -1889,9 +1919,10 @@ class MainDevice(ContainerObject):
 
     class Lights(Object):
         """The green lights showing how many passwords have been accepted."""
+
         def __init__(self, device):
             """Args:
-                device: the MainDevice the lights are on.
+            device: the MainDevice the lights are on.
             """
             super().__init__(device)
             self.total = len(PASSWORDS)
@@ -1918,7 +1949,7 @@ class MainDevice(ContainerObject):
 
     def __init__(self, position):
         """Args:
-            position: the position that holds the device.
+        position: the position that holds the device.
         """
         super().__init__(position)
         self.lights = self.Lights(self)
@@ -1939,6 +1970,7 @@ class MainDevice(ContainerObject):
 
 class Spade(Object):
     """A sharp spade used to dig up the patch of sand."""
+
     def __init__(self, position):
         super().__init__(position)
         self.properties.update(
@@ -1947,7 +1979,6 @@ class Spade(Object):
 
     def use(self, person, object_=None):
         """Use the spade on something diggable.
-
         Args:
             person: the Person using it.
             object_: the target, or None if the player did not name one.
@@ -1962,11 +1993,12 @@ class Spade(Object):
 
 class SandPatch(ContainerObject):
     """A patch of sand hiding an object; it is uncovered after three digs."""
+
     def __init__(self, position, object_, uncvrmsg):
         """Args:
-            position: the position that holds the patch.
-            object_: class of the object hidden underneath, called with the patch as its position.
-            uncvrmsg: message shown when the object is uncovered.
+        position: the position that holds the patch.
+        object_: class of the object hidden underneath, called with the patch as its position.
+        uncvrmsg: message shown when the object is uncovered.
         """
         super().__init__(position)
         self.object_ = object_
@@ -1989,7 +2021,6 @@ class SandPatch(ContainerObject):
 
     def dig(self, person, tool):
         """Dig once. The hidden object appears on the third dig.
-
         Returns:
             A message describing the progress.
         """
@@ -2006,6 +2037,7 @@ class SandPatch(ContainerObject):
 
 class InvisibilityCloak(Object):
     """A cloak that makes the player invisible to NPCs while worn."""
+
     def __init__(self, position):
         super().__init__(position)
         self.properties.update(
@@ -2036,6 +2068,7 @@ class InvisibilityCloak(Object):
 
 class CloakChest(ContainerObject):
     """A small golden chest holding the invisibility cloak."""
+
     def __init__(self, position):
         super().__init__(position)
         self.properties.update(
@@ -2054,10 +2087,11 @@ class CloakChest(ContainerObject):
 
 class Key(Object):
     """An old iron key that locks and unlocks the box it was made for."""
+
     def __init__(self, position, object_):
         """Args:
-            position: the position or container that holds the key.
-            object_: the box it fits; its names become the things the key can be used on.
+        position: the position or container that holds the key.
+        object_: the box it fits; its names become the things the key can be used on.
         """
         super().__init__(position)
         self.properties.update(
@@ -2078,7 +2112,6 @@ class Key(Object):
 
     def use(self, person, object_=None):
         """Toggle the lock of the box.
-
         Args:
             person: the Person using the key.
             object_: the box to unlock or lock, or None if the player did not name one.
@@ -2095,6 +2128,7 @@ class Key(Object):
 
 class Apple(Object):
     """A shiny red apple."""
+
     def __init__(self, position):
         super().__init__(position)
         self.properties.update(
@@ -2104,6 +2138,7 @@ class Apple(Object):
 
 class Banana(Object):
     """A soft yellow banana."""
+
     def __init__(self, position):
         super().__init__(position)
         self.properties.update(
@@ -2118,6 +2153,7 @@ class Banana(Object):
 
 class Coin(Object):
     """A shiny solid gold coin."""
+
     def __init__(self, position):
         super().__init__(position)
         self.properties.update(
@@ -2133,8 +2169,10 @@ class Coin(Object):
 
 class Person:
     """The player character."""
+
     class Inventory:
         """The set of objects the player is carrying; acts as a container for them."""
+
         def __init__(self):
             self.holding = set()
 
@@ -2148,7 +2186,7 @@ class Person:
 
     def __init__(self, position):
         """Args:
-            position: the WorldPosition the player starts on.
+        position: the WorldPosition the player starts on.
         """
         self.position = position
         self.inventory = self.Inventory()
@@ -2177,7 +2215,6 @@ class Person:
 
     def drop(self, object_, newcontainer=None):
         """Move an object from the inventory to a container or the current position.
-
         Args:
             object_: the object to drop.
             newcontainer: where to put it; defaults to the player's position.
@@ -2190,19 +2227,19 @@ class Person:
 
 class Game:
     """The game engine: builds the island, parses commands and runs the main loop.
-
     Command handlers (take, drop, examine, ...) each receive the rest of the typed
     line as a single string and return the text to show, or an EndGame. Handlers
     that change the world usually return (message, self.updateobjectindex())[0] so
     the index of visible objects is refreshed while the message is still returned.
-
     Dialogue trees returned by NPCs are lists of [text, next] where next is:
         None    the conversation ends after text
         dict    numbered options: {choice text: another [text, next]}
         tuple   objects (or a call that creates them) handed to the player
     """
+
     def __init__(self):
         """Register all command words and their aliases, then build the game world."""
+
         def look(inputstring=None):
             """Handle 'look' (look around) and 'look <thing>' (examine, text only)."""
             if not inputstring:
@@ -2215,6 +2252,9 @@ class Game:
 
         # Number of counted commands the player gets before losing.
         self.maxcommands = 200
+        # List of all the commands typed by the player except for save and load
+        # themselves, used for save and load game (includes invalid commands).
+        self.history = []
         # Command word(s) -> handler. Several words can map to the same handler.
         self.commands = {
             "help": self.helpcommands,
@@ -2260,11 +2300,14 @@ class Game:
             "enter": self.enter,
             "moves": lambda: f"\x1b[32mYou have {self.maxcommands - self.donecommands} commands left.\x1b[0m",
             "commands": lambda: f"\x1b[32mYou have {self.maxcommands - self.donecommands} commands left.\x1b[0m",
-            "quit": lambda: EndGame(None, "bye", None),
+            "save": self.save,
+            "load": self.load,
+            "quit": self.quit,
         } | {cmd + " exit": self.exit for cmd in ("walk", "go", "move", "enter")}
 
         def make_move(dir_):
             """Create a no-argument command that moves in a fixed direction."""
+
             def move():
                 return self.move(dir_)
 
@@ -2281,7 +2324,178 @@ class Game:
             if len(words) > 1:
                 for word in words[:-1]:
                     self.ongoingcommands.add(word)
-        self.setup()
+
+    def prompt(self, prompt, default=False):
+        """Yes or no prompts. Repeat 3 times for invalid
+        input, then return default value."""
+        ans = getinput(prompt).strip().lower()
+        if not ans:
+            return default
+        ans = ans[0]
+        if ans == "y":
+            return True
+        elif ans == "n":
+            return False
+        for i in range(2):
+            ans = getinput(
+                f"\x1b[1m\x1b[31m[invalid input ({i + 2}/3)\x1b[0m " + prompt
+            )
+            if ans == "y":
+                return True
+            elif ans == "n":
+                return False
+        return default
+
+    def quit(self):
+        """Quit game after asking to save game if progress
+        is made."""
+
+        if self.history and self.prompt(
+            "\x1b[1m\x1b[33msave game before quitting? (y/N): \x1b[0m"
+        ):
+            if saveoutput := self.save():
+                printoutput(saveoutput)
+        return EndGame(None, "bye", None)
+
+    def getfile(self, filefor):
+        """Prompt for a file path. If filefor is 'save',
+        warn for overwriting file. If filefor is 'load',
+        error on nonexistent file. If left blank, return
+        None."""
+        import os.path
+
+        prompt = (
+            "\x1b[1m" + ("Save" if filefor == "save" else "Load") + " File: \x1b[0m"
+        )
+        fn = getinput(prompt).strip()
+        if not fn:
+            return
+        fn = os.path.abspath(os.path.expanduser(fn))
+        if filefor == "save" and os.path.exists(fn):
+            if os.path.isdir(fn):
+                printoutput("\x1b[31merror: already existing directory\x1b[0m")
+                return
+            if not self.prompt(
+                "\x1b[1m\x1b[33mfile already exists. overwrite? (y/N): \x1b[0m"
+            ):
+                return self.getfile(filefor)
+            else:
+                return fn
+        elif filefor == "load" and not os.path.exists(fn):
+            printoutput("\x1b[31merror: file does not exist\x1b[0m")
+        elif filefor == "load" and os.path.isdir(fn):
+            printoutput("\x1b[31merror: is a directory\x1b[0m")
+        else:
+            return fn
+
+    def save(self):
+        """Save game state"""
+        fn = self.getfile("save")
+        if fn is None:
+            return
+        try:
+            with open(fn, "w", encoding="utf-8") as file:
+                file.write("\n".join(self.history))
+        except Exception as e:
+            return f"\x1b[31merror: {e}\x1b[0m"
+        else:
+            return f"\x1b[32m\x1b[3msaved game\x1b[0m"
+
+    def load(self):
+        """Load previously saved game. Quit the game if error."""
+        if self.history and not self.prompt(
+            "\x1b[1m\x1b[33mdiscard current game? (y/N): \x1b[0m"
+        ):
+            return
+
+        fn = self.getfile("load")
+        if fn is None:
+            return
+        try:
+            self.reset()
+            printoutput("\x1b[H\x1b[2J\x1b[3J", end="")
+            printoutput(self.lookaround())
+            with open(fn, "r", encoding="utf-8") as file:
+                for command in file.read().split("\n"):
+                    # Print the command as if the user had actually typed it to recover screen as well as game state.
+                    printoutput("\n> " + command + "\n")
+                    output = self.parse(command)
+                    if type(output) == EndGame:
+                        if not output.description and not output.win:
+                            printoutput(output.endmessage)
+                            return
+                        printoutput("\x1b[H\x1b[2J\x1b[3J", end="")
+                        printoutput(
+                            "\x1b[3m"
+                            + output.description
+                            + "\x1b[0m\n\n"
+                            + output.endmessage
+                            + "\n\n"
+                            + (
+                                "\x1b[1m\x1b[32mYOU WIN!\x1b[0m"
+                                if output.win
+                                else "\x1b[1m\x1b[31mYOU LOSE.\x1b[0m"
+                            )
+                            + "\n"
+                        )
+                        while True:
+                            playagain = (
+                                getinput(
+                                    "\x1b[1m\x1b[32mDo you want to play again? (yes/no): \x1b[0m"
+                                )
+                                .strip()
+                                .lower()
+                            )
+                            if playagain in ("yes", "no"):
+                                break
+                            else:
+                                printoutput("That is not a valid option.\n")
+                        if playagain == "yes":
+                            break
+                        else:
+                            printoutput("\nbye")
+                            return
+                    if output:
+                        printoutput(output)
+                        if 0 < self.maxcommands - self.donecommands - 1 <= 20:
+                            printoutput(
+                                f'\n\n\x1b[31mYou only have {self.maxcommands - self.donecommands - 1} {"commands" if self.maxcommands - self.donecommands - 1 != 1 else "command"} left!\x1b[0m'
+                            )
+                        elif self.maxcommands - self.donecommands - 1 == 0:
+                            printoutput(f"\n\n\x1b[31mYou have 0 commands left!\x1b[0m")
+                        if command.strip().lower() not in (
+                            "moves",
+                            "commands",
+                        ) and output not in (
+                            "\x1b[31mSorry, I don't understand.\x1b[0m",
+                            "Time passes...",
+                        ):
+                            self.donecommands += 1
+                            if self.donecommands == self.maxcommands:
+                                printoutput(
+                                    "\n\x1b[31mOh no! It is too late. Your rivals have come back to the island and destroyed the device! You have now lost your hard work forever.\x1b[0m\n"
+                                )
+                                while True:
+                                    playagain = (
+                                        getinput(
+                                            "\x1b[1m\x1b[32mDo you want to play again? (yes/no): \x1b[0m"
+                                        )
+                                        .strip()
+                                        .lower()
+                                    )
+                                    if playagain in ("yes", "no"):
+                                        break
+                                    else:
+                                        printoutput("That is not a valid option.\n")
+                                if playagain == "yes":
+                                    break
+                                else:
+                                    printoutput("\nbye")
+                                    return
+        except Exception as e:
+            exitwith(f"\x1b[31merror: {e}\x1b[0m")
+        else:
+            return
 
     def helpcommands(self):
         """Show the help pages on the alternate screen."""
@@ -2292,7 +2506,7 @@ When at the > prompt, type actions in the format:
     \x1b[1mcommand\x1b[0m \x1b[3minput\x1b[0m
 
 Examples: '\x1b[1mtake\x1b[0m \x1b[3mapple from table\x1b[0m', '\x1b[1mgive\x1b[0m \x1b[3mapple to man\x1b[0m', '\x1b[1mexam\x1b[0m \x1b[3mditch\x1b[0m'
-If the game returns 'Sorry, I don\'t understand.' for your command, try using another word with the same meaning.
+If the game returns 'Sorry, I don't understand.' for your command, try using another word with the same meaning.
 You have {self.maxcommands} total commands to finish the game before you lose. Empty inputs and commands which return 'Sorry, I don't understand.' will not be counted.
 When talking to an NPC, you will be given numbered options like this after the NPC dialogue:
 
@@ -2330,12 +2544,8 @@ Moving in any direction always also looks around, you don't need to retype look.
         printoutput("\x1b[?1049l", end="")
         return "\x1b[3mHelp done.\x1b[0m"
 
-    def setup(self):
-        """Create a fresh island, put the player on it and show the introduction.
-
-        Called at the start and again every time the player chooses to play again.
-        """
-        printoutput("\x1b[H\x1b[2J\x1b[3J", end="")
+    def reset(self):
+        """Reset (or initialize) the world."""
         # Build the island. The player starts at (5, 5) next to a table and the locksmith.
         self.world = World((10, 10))
         Apple(table := Table(self.world.positions[(5, 5)]))
@@ -2386,6 +2596,26 @@ Moving in any direction always also looks around, you don't need to retype look.
         Ship(self.world.positions[(9, 7)], self.world.positions[(8, 7)])
         self.person = Person(self.world.positions[(5, 5)])
         self.updateobjectindex()
+        self.donecommands = 0
+
+    def setup(self):
+        """Create a fresh island, put the player on it and show the introduction.
+        Called at the start and again every time the player chooses to play again."""
+        printoutput("\x1b[H\x1b[2J\x1b[3J", end="")
+        self.reset()
+        printoutput("""\
+\x1b[1m\x1b[32m\
+╔═════════════════════════╗
+║ QUEST FOR THE FIVE KEYS ║
+║\x1b[39m\x1b[3m\
+ A text adventure game\
+\x1b[32m\x1b[23m\
+   ║
+╚═════════════════════════╝\
+\x1b[0m
+""")
+        getinput("\x1b[1m\x1b[31m[Press Enter to continue]\x1b[0m")
+        printoutput("\x1b[H\x1b[2J\x1b[3J", end="")
         printoutput("""\
 You are one of the world\'s foremost research scientists. After years of work, you had finally completed the greatest experiment of your career.
 
@@ -2433,18 +2663,18 @@ You are allowed to use a maximum of {self.maxcommands} commands, including 'help
 
 Type 'moves' or 'commands' at any time to see the number of commands you have left.
 
+Type 'save' to export a file from which you can later continue play. Load a saved file with 'load'.
+
 Quitting is for losers, but you can do it by typing 'quit'.
 
 Good luck!\
 """)
         getinput("\x1b[1m\x1b[31m[Press Enter to continue]\x1b[0m")
         printoutput("\x1b[H\x1b[2J\x1b[3J", end="")
-        printoutput(self.parse("look"))
-        self.donecommands = 0
+        printoutput(self.lookaround())
 
     def anifier(self, word, pospointsindir=None):
         """Return a word with its article and highlight color, like 'an apple' or 'some trees'.
-
         Args:
             word: the object name.
             pospointsindir: the highlighted things pointed at from the current cell,
@@ -2614,7 +2844,6 @@ Good luck!\
 
     def lookaround(self):
         """Describe the surroundings: where the player is, the paths nearby and the objects around.
-
         Also clears the screen, so the result replaces whatever was shown before.
         """
         returnstring = ""
@@ -2960,7 +3189,6 @@ Good luck!\
 
     def give(self, inputstring=None):
         """Give an inventory object to an NPC.
-
         The NPC's give() returns a tuple:
             (False,)            the NPC refuses
             (False, dialogue)   the NPC refuses but says something
@@ -3019,7 +3247,6 @@ Good luck!\
 
     def talk(self, personname=None, givendil=None):
         """Talk to an NPC, running its dialogue tree until it ends.
-
         Args:
             personname: name of the NPC.
             givendil: a dialogue to run instead of asking the NPC (used after give).
@@ -3070,7 +3297,7 @@ Good luck!\
                     if int(chosen) <= 0:
                         raise Exception
                     chosen = chosableoptions[int(chosen) - 1]
-                except:
+                except Exception:
                     printoutput("That is not a valid option.")
                 else:
                     break
@@ -3113,7 +3340,6 @@ Good luck!\
 
     def move(self, givendir=None):
         """Move the player in a direction, towards an object or path, or into an inside world.
-
         Blocking objects stop the player, guards get a chance to react and stepping
         onto an exit cell leaves the current inside world. Successful moves also look
         around.
@@ -3299,7 +3525,6 @@ Good luck!\
 
     def resolve(self, inputstring):
         """Turn typed text like 'apple from box' into the object it names.
-
         Returns:
             (object, object name, holder, holder name) with None for the holder parts
             when no holder was given, or an error message string if nothing matches.
@@ -3537,7 +3762,6 @@ Good luck!\
 
     def updateobjectindex(self):
         """Rebuild the lists of what the player can currently refer to.
-
         Covers the cells around the player (and the contents of open containers there),
         the paths nearby and the inventory. Must be called after anything moves.
         """
@@ -3642,10 +3866,8 @@ Good luck!\
 
     def parse(self, line):
         """Match a typed line to a command and run it.
-
         Commands may be several words ('pick up'), and everything after the command
         word is passed to its handler as input.
-
         Returns:
             The text (or EndGame) produced by the command. Unknown input gives a
             'Sorry, I don't understand.' message.
@@ -3653,6 +3875,8 @@ Good luck!\
         line = line.strip()
         if not line:
             return "Time passes..."
+        if line not in ("save", "load", "quit"):
+            self.history.append(line)
         words = line.split()
         command = None
         inputs = []
@@ -3688,12 +3912,11 @@ Good luck!\
             return "\x1b[31mSorry, I don't understand.\x1b[0m"
         try:
             return command(" ".join(inputs)) if inputs else command()
-        except:
+        except Exception:
             return "\x1b[31mSorry, I don't understand.\x1b[0m"
 
     def loop(self):
         """Run the game: read commands, show results and handle winning, losing and running out of moves.
-
         Each iteration of the outer loop is one round; it restarts the game when the
         player chooses to play again.
         """
@@ -3784,4 +4007,8 @@ LAST_PASSWD_CODE = "Bangalore is Four distances North in Seven of China's larges
 
 # Start the gameloop to play.
 if __name__ == "__main__":
-    Game().loop()
+    game = Game()
+    game.setup()
+    if options["load"]:
+        game.parse("load")
+    game.loop()
