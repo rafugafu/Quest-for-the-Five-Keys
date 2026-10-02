@@ -142,6 +142,49 @@ static void exitWithError(const std::string& msg) {
     std::exit(1);
 }
 
+// gStdinEOF: set when a live (non-replay) read hits true EOF. Python's input()
+// raises an uncaught EOFError in this case (crashing); main()'s top-level
+// prompt and play-again loop instead check this flag and exit cleanly,
+// matching this C++ port's existing (pre-this-refactor) simplification of
+// not reproducing a Python traceback. No other call site checks it, since
+// none did before either.
+static bool gStdinEOF = false;
+// rawGetInput(): mirrors Game.py's renamed _getinput() — the original plain
+// prompt+read+log, with no replay-queue awareness.
+static std::string rawGetInput(const std::string& promptText) {
+    std::string s;
+    emit(promptText);
+    if(!readline(s, promptText)) gStdinEOF = true;
+    return s;
+}
+
+// gInputs/gQueuedInputs/getInputWrapped(): mirrors Game.py's module-level
+// inputs/queued_inputs/getinput(). Every interactive prompt anywhere in the
+// game (not just top-level commands — "press enter" waits, y/n prompts,
+// dialogue option numbers, the device's "code: " prompt, ...) goes through
+// this single function, so save/load can transparently record and replay
+// the exact literal sequence of everything the player typed, regardless of
+// which code path asked for it. File-scope (not an Engine member) because
+// it must be reachable from Button::press(), which isn't part of Engine.
+static std::vector<std::string> gInputs;
+static std::vector<std::string> gQueuedInputs;
+static std::string getInputWrapped(const std::string& promptText) {
+    if(gQueuedInputs.empty()) {
+        gQueuedInputs.insert(gQueuedInputs.begin(), rawGetInput(promptText));
+    } else {
+        // Echo the queued value as if the player had typed it, mirroring
+        // Python's printoutput(string + queued_inputs[0] + "\n") — note the
+        // embedded "\n" plus printoutput()'s own default trailing "\n" stack,
+        // matching the established pyprint() convention of passing the full
+        // "as if print() added its own newline too" text.
+        pyprint(promptText + gQueuedInputs.front() + "\n\n");
+    }
+    std::string gotinput = gQueuedInputs.front();
+    gQueuedInputs.erase(gQueuedInputs.begin());
+    gInputs.push_back(gotinput);
+    return gotinput;
+}
+
 // ─── command-line argument parser (mirrors Game.py's --option parser) ───
 // Option value kinds: 0 = True (unset, requires a value), 1 = False (unset flag),
 // 2 = None (flag was set), 3 = Str (has a string value).
@@ -257,11 +300,25 @@ struct EndGame { std::string description, endmessage; bool win; };
 static const std::vector<std::string> PASSWORDS = {"ad6x29z","xz50op3","g8k9vbn","8dkr6e9","b4n7cc1"};
 static const std::string LAST_PASSWD_CODE = "Bangalore is Four distances North in Seven of China's largest Cuisines, number One.";
 
-// gHistory — mirrors Game.py's Game.history: every typed line (except the bare
-// commands "save"/"load" themselves), used by save/load. Lives at file scope
-// (not on Engine) because Python's Game object — and so its history — persists
-// across "play again" restarts, while the C++ Engine is recreated each restart.
-static std::vector<std::string> gHistory;
+// hasRealProgress(): mirrors Game.py's
+// `[x for x in inputs if x.strip().lower() not in ("save","load","quit")]`
+// truthiness check used by quit()/load() to decide whether there's anything
+// worth asking to save/discard. gInputs (declared with getInputWrapped()
+// above) lives at file scope, not on Engine, because Python's Game object —
+// and so its `inputs` list — persists across "play again" restarts, while
+// the C++ Engine is recreated each restart.
+static bool hasRealProgress() {
+    for(const auto& x : gInputs) {
+        std::string low=x;
+        size_t a=0,b=low.size();
+        while(a<b&&isspace((unsigned char)low[a])) ++a;
+        while(b>a&&isspace((unsigned char)low[b-1])) --b;
+        low=low.substr(a,b-a);
+        std::transform(low.begin(),low.end(),low.begin(),::tolower);
+        if(low!="save"&&low!="load"&&low!="quit") return true;
+    }
+    return false;
+}
 
 // ─────────────────────────────────────────────────────────────
 // GameResult
@@ -1218,8 +1275,7 @@ public:
     void deleteObj() override {}
     GameResult use(Person* p, GameObject* =nullptr) override { return press(p); }
     GameResult press(Person*) override {
-        emit("code: ");
-        std::string code; readline(code, "code: ");
+        std::string code=getInputWrapped("code: ");
         while(!code.empty()&&(code.back()=='\r'||code.back()==' ')) code.pop_back();
         std::transform(code.begin(),code.end(),code.begin(),::tolower);
         pyprint("\n");
@@ -1618,6 +1674,8 @@ public:
         person = p;
         updateIdx();
         donecommands=0;
+        gInputs.clear();
+        gQueuedInputs.clear();
     }
 
     // ── setup (mirrors Game.setup) ─────────────────────────────
@@ -1634,8 +1692,7 @@ public:
             "\xe2\x95\x91\x1b[39m\x1b[3m A text adventure game\x1b[32m\x1b[23m   \xe2\x95\x91\n"
             "\xe2\x95\x9a\xe2\x95\x90\xe2\x95\x90\xe2\x95\x90\xe2\x95\x90\xe2\x95\x90\xe2\x95\x90\xe2\x95\x90\xe2\x95\x90\xe2\x95\x90\xe2\x95\x90\xe2\x95\x90\xe2\x95\x90\xe2\x95\x90\xe2\x95\x90\xe2\x95\x90\xe2\x95\x90\xe2\x95\x90\xe2\x95\x90\xe2\x95\x90\xe2\x95\x90\xe2\x95\x90\xe2\x95\x90\xe2\x95\x90\xe2\x95\x90\xe2\x95\x90\xe2\x95\x9d\x1b[0m\n"
             "\n");
-        emit("\x1b[1m\x1b[31m[Press Enter to continue]\x1b[0m");
-        std::string dummy; readline(dummy, "\x1b[1m\x1b[31m[Press Enter to continue]\x1b[0m");
+        getInputWrapped("\x1b[1m\x1b[31m[Press Enter to continue]\x1b[0m");
 
         cls();
         pyprint(
@@ -1652,8 +1709,7 @@ public:
             "Can you recover the five passwords, unlock the device, and reclaim your stolen work? "
             "Your success depends entirely on your ingenuity.\n\n"
             "Your fate-and the fate of your experiment-is now in your hands.\n");
-        emit("\x1b[1m\x1b[31m[Press Enter to continue]\x1b[0m");
-        readline(dummy, "\x1b[1m\x1b[31m[Press Enter to continue]\x1b[0m");
+        getInputWrapped("\x1b[1m\x1b[31m[Press Enter to continue]\x1b[0m");
 
         cls();
         pyprint(
@@ -1668,8 +1724,7 @@ public:
             "If a command does not work, try using another word with the same meaning.\n\n"
             "Moving in any direction always also looks around. You don't need to retype look after going somewhere.\n\n"
             "You can always interact with an object if it is in view (listed in 'look').\n");
-        emit("\x1b[1m\x1b[31m[Press Enter to continue]\x1b[0m");
-        readline(dummy, "\x1b[1m\x1b[31m[Press Enter to continue]\x1b[0m");
+        getInputWrapped("\x1b[1m\x1b[31m[Press Enter to continue]\x1b[0m");
 
         cls();
         pyprint(
@@ -1687,10 +1742,10 @@ public:
             "Type 'save' to export a file from which you can later continue play. Load a saved file with 'load'.\n\n"
             "Quitting is for losers, but you can do it by typing 'quit'.\n\n"
             "Good luck!\n");
-        emit("\x1b[1m\x1b[31m[Press Enter to continue]\x1b[0m");
-        readline(dummy, "\x1b[1m\x1b[31m[Press Enter to continue]\x1b[0m");
+        getInputWrapped("\x1b[1m\x1b[31m[Press Enter to continue]\x1b[0m");
 
         cls();
+        reset();
         auto il=cmdLook();
         if(il.isStr()) pyprint(il.asStr()+"\n");
     }
@@ -2093,7 +2148,7 @@ public:
         return s.substr(a,b-a);
     }
     bool promptYN(const std::string& promptText, bool defaultVal=false) {
-        std::string ans; emit(promptText); readline(ans, promptText);
+        std::string ans=getInputWrapped(promptText);
         std::string low=stripStr(ans);
         std::transform(low.begin(),low.end(),low.begin(),::tolower);
         if(low.empty()) return defaultVal;
@@ -2102,7 +2157,7 @@ public:
         if(c=='n') return false;
         for(int i=0;i<2;++i) {
             std::string p2="\x1b[1m\x1b[31m[invalid input ("+std::to_string(i+2)+"/3)\x1b[0m "+promptText;
-            std::string ans2; emit(p2); readline(ans2, p2);
+            std::string ans2=getInputWrapped(p2);
             // Mirrors Python exactly: retries compare the raw (unstripped, uncased) answer.
             if(ans2=="y") return true;
             if(ans2=="n") return false;
@@ -2121,7 +2176,7 @@ public:
     }
     std::optional<std::string> getFile(const std::string& filefor) {
         std::string promptText=std::string("\x1b[1m")+(filefor=="save"?"Save":"Load")+" File: \x1b[0m";
-        std::string raw; emit(promptText); readline(raw, promptText);
+        std::string raw=getInputWrapped(promptText);
         std::string fn=stripStr(raw);
         if(fn.empty()) return std::nullopt;
         fn=expandUser(fn);
@@ -2146,7 +2201,7 @@ public:
 
     // ── cmdQuit (mirrors Game.quit) ────────────────────────────
     GameResult cmdQuit() {
-        if(!gHistory.empty()&&promptYN("\x1b[1m\x1b[33msave game before quitting? (y/N): \x1b[0m")) {
+        if(hasRealProgress()&&promptYN("\x1b[1m\x1b[33msave game before quitting? (y/N): \x1b[0m")) {
             // Mirrors Python's `if saveoutput := self.save(): printoutput(saveoutput)`.
             auto saveResult=cmdSave();
             if(saveResult.isStr()&&!saveResult.asStr().empty()) pyprint(saveResult.asStr()+"\n");
@@ -2165,7 +2220,7 @@ public:
         std::ofstream file(*fn, std::ios::binary);
         if(!file) return gStr("\x1b[31merror: could not open file\x1b[0m");
         std::string joined;
-        for(size_t i=0;i<gHistory.size();++i){ if(i) joined+="\n"; joined+=gHistory[i]; }
+        for(size_t i=0;i<gInputs.size();++i){ if(i) joined+="\n"; joined+=gInputs[i]; }
         file.write(joined.data(), (std::streamsize)joined.size());
         if(!file) return gStr("\x1b[31merror: write failed\x1b[0m");
         return gStr("\x1b[32m\x1b[3msaved game\x1b[0m");
@@ -2176,7 +2231,7 @@ public:
     // own EndGame/move-counting handling exactly (Python does not factor this
     // into a shared helper either — it is inlined twice, in loop() and here).
     GameResult cmdLoad() {
-        if(!gHistory.empty()&&!promptYN("\x1b[1m\x1b[33mdiscard current game? (y/N): \x1b[0m"))
+        if(hasRealProgress()&&!promptYN("\x1b[1m\x1b[33mdiscard current game? (y/N): \x1b[0m"))
             return gStr("");
         auto fnOpt=getFile("load");
         if(!fnOpt) return gStr("");
@@ -2187,13 +2242,12 @@ public:
         // a rare race/permission error — mirror that hard-exit behavior exactly.
         if(!file) exitWithError("\x1b[31merror: could not open file\x1b[0m");
         std::string content((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
-        std::vector<std::string> lines;
-        { size_t start=0; for(size_t i=0;i<=content.size();++i) if(i==content.size()||content[i]=='\n') { lines.push_back(content.substr(start,i-start)); start=i+1; } }
         reset();
-        pyprint("\x1b[H\x1b[2J\x1b[3J");
-        { auto lookRes=cmdLook(); if(lookRes.isStr()) pyprint(lookRes.asStr()+"\n"); }
-        for(const auto& command : lines) {
-            pyprint("\n> "+command+"\n\n");
+        gQueuedInputs.clear();
+        { size_t start=0; for(size_t i=0;i<=content.size();++i) if(i==content.size()||content[i]=='\n') { gQueuedInputs.push_back(content.substr(start,i-start)); start=i+1; } }
+        while(!gQueuedInputs.empty()) {
+            std::string command=getInputWrapped("\n> ");
+            pyprint("\n");
             auto output=parse(command);
             if(output.isEnd()) {
                 if(output.eg.description.empty()&&!output.eg.win) { pyprint(output.eg.endmessage+"\n"); return gStr(""); }
@@ -2202,8 +2256,7 @@ public:
                     (output.eg.win?"\x1b[1m\x1b[32mYOU WIN!\x1b[0m":"\x1b[1m\x1b[31mYOU LOSE.\x1b[0m")+"\n");
                 bool playagain=false;
                 while(true) {
-                    std::string pa; emit("\x1b[1m\x1b[32mDo you want to play again? (yes/no): \x1b[0m");
-                    readline(pa, "\x1b[1m\x1b[32mDo you want to play again? (yes/no): \x1b[0m");
+                    std::string pa=getInputWrapped("\x1b[1m\x1b[32mDo you want to play again? (yes/no): \x1b[0m");
                     std::string palow=stripStr(pa); std::transform(palow.begin(),palow.end(),palow.begin(),::tolower);
                     if(palow=="yes"){ playagain=true; break; }
                     if(palow=="no"){ playagain=false; break; }
@@ -2224,8 +2277,7 @@ public:
                         pyprint("\n\x1b[31mOh no! It is too late. Your rivals have come back to the island and destroyed the device! You have now lost your hard work forever.\x1b[0m\n\n");
                         bool playagain=false;
                         while(true) {
-                            std::string pa; emit("\x1b[1m\x1b[32mDo you want to play again? (yes/no): \x1b[0m");
-                            readline(pa, "\x1b[1m\x1b[32mDo you want to play again? (yes/no): \x1b[0m");
+                            std::string pa=getInputWrapped("\x1b[1m\x1b[32mDo you want to play again? (yes/no): \x1b[0m");
                             std::string palow=stripStr(pa); std::transform(palow.begin(),palow.end(),palow.begin(),::tolower);
                             if(palow=="yes"){ playagain=true; break; }
                             if(palow=="no"){ playagain=false; break; }
@@ -2256,8 +2308,8 @@ public:
             "    \x1b[3m[2] Bye\x1b[0m\n\n"
             "    \x1b[3moptions: 1/2\x1b[0m.\n\n"
             "Then you will have to enter only a number from the given options. You cannot type normal game commands here or exit this prompt yourself.\n");
-        emit("\n\x1b[1m\x1b[31m[Press Enter to continue]\x1b[0m");
-        std::string dummy; readline(dummy, "\x1b[1m\x1b[31m[Press Enter to continue]\x1b[0m");
+        emit("\n");
+        getInputWrapped("\x1b[1m\x1b[31m[Press Enter to continue]\x1b[0m");
         emit("\x1b[H\x1b[2J");
         pyprintKeepNL(
             "Always try to examine all objects you see.\n"
@@ -2275,8 +2327,8 @@ public:
             "- \x1b[1mtalk\x1b[0m / \x1b[1mtalk to\x1b[0m \x1b[3mperson\x1b[0m\n"
             "- \x1b[1muse\x1b[0m \x1b[3mobject\x1b[0m\n"
             "- \x1b[1muse\x1b[0m \x1b[3mobject_1 on object_2\x1b[0m\n");
-        emit("\n\x1b[1m\x1b[31m[Press Enter to continue]\x1b[0m");
-        readline(dummy, "\x1b[1m\x1b[31m[Press Enter to continue]\x1b[0m");
+        emit("\n");
+        getInputWrapped("\x1b[1m\x1b[31m[Press Enter to continue]\x1b[0m");
         emit("\x1b[?1049l");
         return gStr("\x1b[3mHelp done.\x1b[0m");
     }
@@ -2362,8 +2414,7 @@ public:
                 std::string line="\n\x1b[3moptions: ";
                 for(int j=1;j<=(int)opts.size();++j){ line+=std::to_string(j); if(j<(int)opts.size()) line+="/"; }
                 line+=".\x1b[0m";
-                emit(line+" ");
-                std::string ch; readline(ch, line+" ");
+                std::string ch=getInputWrapped(line+" ");
                 // Mirror Python: chosen.strip(); int(chosen) must parse the WHOLE string;
                 // int(chosen) <= 0 is invalid; otherwise chosableoptions[int-1] (1..len).
                 size_t a=0,b=ch.size();
@@ -2677,7 +2728,6 @@ public:
         while(!line.empty()&&(line.front()==' '||line.front()=='\t')) line=line.substr(1);
         while(!line.empty()&&(line.back()==' '||line.back()=='\t'||line.back()=='\r'||line.back()=='\n')) line.pop_back();
         if(line.empty()) return gStr("Time passes...");
-        if(line!="save"&&line!="load"&&line!="quit") gHistory.push_back(line);
         std::string low=line;
         std::transform(low.begin(),low.end(),low.begin(),::tolower);
 
@@ -2767,8 +2817,8 @@ int main(int argc, char** argv) {
     auto askPlayAgain=[&](bool& restart)->bool{
         std::string pa;
         while(true) {
-            emit("\x1b[1m\x1b[32mDo you want to play again? (yes/no): \x1b[0m");
-            if(!readline(pa, "\x1b[1m\x1b[32mDo you want to play again? (yes/no): \x1b[0m")) return false;
+            pa=getInputWrapped("\x1b[1m\x1b[32mDo you want to play again? (yes/no): \x1b[0m");
+            if(gStdinEOF) return false;
             while(!pa.empty()&&(pa.front()=='\r'||pa.front()==' '||pa.front()=='\t')) pa.erase(pa.begin());
             while(!pa.empty()&&(pa.back()=='\r'||pa.back()==' '||pa.back()=='\t')) pa.pop_back();
             std::transform(pa.begin(),pa.end(),pa.begin(),::tolower);
@@ -2785,9 +2835,8 @@ int main(int argc, char** argv) {
         firstRound=false;
         bool restart=false;
         while(true) {
-            emit("\n> ");
-            std::string cmd;
-            if(!readline(cmd, "\n> ")) return 0;
+            std::string cmd=getInputWrapped("\n> ");
+            if(gStdinEOF) return 0;
             pyprint("\n");
             auto out=engine->parse(cmd);
             if(out.isEnd()){
