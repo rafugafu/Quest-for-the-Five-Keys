@@ -212,7 +212,7 @@ def printoutput(string="", *args, **kwargs):
     return print(string, *args, **kwargs)
 
 
-def getinput(string="", *args, **kwargs):
+def _getinput(string="", *args, **kwargs):
     """Prompt the user like input() while honouring the --no-color/--no-ansi options.
     When logging, both the prompt and the user's reply are recorded in the log file.
     Returns:
@@ -234,6 +234,19 @@ def getinput(string="", *args, **kwargs):
         )
         writefile.flush()
     return userinput
+
+def getinput(string="", *args, **kwargs):
+    """Custom getinput function to use queued_inputs list
+    and add inputs to list of inputs used for save game. If
+    queued input exists, print it as if the user had actually
+    typed it."""
+    if not queued_inputs:
+        queued_inputs.insert(0, _getinput(string, *args, **kwargs))
+    else:
+        printoutput(string + queued_inputs[0] + "\n")
+    gotinput = queued_inputs.pop(0)
+    inputs.append(gotinput)
+    return gotinput
 
 
 class WorldPosition:
@@ -2252,9 +2265,6 @@ class Game:
 
         # Number of counted commands the player gets before losing.
         self.maxcommands = 200
-        # List of all the commands typed by the player except for save and load
-        # themselves, used for save and load game (includes invalid commands).
-        self.history = []
         # Command word(s) -> handler. Several words can map to the same handler.
         self.commands = {
             "help": self.helpcommands,
@@ -2350,7 +2360,7 @@ class Game:
         """Quit game after asking to save game if progress
         is made."""
 
-        if self.history and self.prompt(
+        if [x for x in inputs if x.strip().lower() not in ("save", "load", "quit")] and self.prompt(
             "\x1b[1m\x1b[33msave game before quitting? (y/N): \x1b[0m"
         ):
             if saveoutput := self.save():
@@ -2389,21 +2399,23 @@ class Game:
             return fn
 
     def save(self):
-        """Save game state"""
+        """Save game state into a file. Write all inputs including
+        commands to load."""
         fn = self.getfile("save")
         if fn is None:
             return
         try:
             with open(fn, "w", encoding="utf-8") as file:
-                file.write("\n".join(self.history))
+                file.write("\n".join(inputs))
         except Exception as e:
             return f"\x1b[31merror: {e}\x1b[0m"
         else:
             return f"\x1b[32m\x1b[3msaved game\x1b[0m"
 
     def load(self):
+        global queued_inputs
         """Load previously saved game. Quit the game if error."""
-        if self.history and not self.prompt(
+        if [x for x in inputs if x.strip().lower() not in ("save", "load", "quit")] and not self.prompt(
             "\x1b[1m\x1b[33mdiscard current game? (y/N): \x1b[0m"
         ):
             return
@@ -2412,13 +2424,14 @@ class Game:
         if fn is None:
             return
         try:
-            self.reset()
-            printoutput("\x1b[H\x1b[2J\x1b[3J", end="")
-            printoutput(self.lookaround())
             with open(fn, "r", encoding="utf-8") as file:
-                for command in file.read().split("\n"):
-                    # Print the command as if the user had actually typed it to recover screen as well as game state.
-                    printoutput("\n> " + command + "\n")
+                self.reset()
+                queued_inputs = file.read().split("\n")
+                # Normal loop() till queued_inputs is empty.
+                while queued_inputs:
+                    # One typed command per iteration; an EndGame result finishes the round.
+                    command = getinput("\n> ")
+                    printoutput()
                     output = self.parse(command)
                     if type(output) == EndGame:
                         if not output.description and not output.win:
@@ -2545,6 +2558,7 @@ Moving in any direction always also looks around, you don't need to retype look.
         return "\x1b[3mHelp done.\x1b[0m"
 
     def reset(self):
+        global inputs, queued_inputs
         """Reset (or initialize) the world."""
         # Build the island. The player starts at (5, 5) next to a table and the locksmith.
         self.world = World((10, 10))
@@ -2597,12 +2611,18 @@ Moving in any direction always also looks around, you don't need to retype look.
         self.person = Person(self.world.positions[(5, 5)])
         self.updateobjectindex()
         self.donecommands = 0
+        # List of all the inputs by the player, including commands. Used for
+        # save and load game.
+        inputs = []
+        # Queued inputs. If not empty, getinput pops the first one. Used for
+        # load game.
+        queued_inputs = []
 
     def setup(self):
         """Create a fresh island, put the player on it and show the introduction.
         Called at the start and again every time the player chooses to play again."""
-        printoutput("\x1b[H\x1b[2J\x1b[3J", end="")
         self.reset()
+        printoutput("\x1b[H\x1b[2J\x1b[3J", end="")
         printoutput("""\
 \x1b[1m\x1b[32m\
 ╔═════════════════════════╗
@@ -2671,6 +2691,7 @@ Good luck!\
 """)
         getinput("\x1b[1m\x1b[31m[Press Enter to continue]\x1b[0m")
         printoutput("\x1b[H\x1b[2J\x1b[3J", end="")
+        self.reset()
         printoutput(self.lookaround())
 
     def anifier(self, word, pospointsindir=None):
@@ -3875,8 +3896,6 @@ Good luck!\
         line = line.strip()
         if not line:
             return "Time passes..."
-        if line not in ("save", "load", "quit"):
-            self.history.append(line)
         words = line.split()
         command = None
         inputs = []
@@ -4004,6 +4023,9 @@ Good luck!\
 # The five passwords hidden on the island. All must be entered, each only once.
 PASSWORDS = ("ad6x29z", "xz50op3", "g8k9vbn", "8dkr6e9", "b4n7cc1")
 LAST_PASSWD_CODE = "Bangalore is Four distances North in Seven of China's largest Cuisines, number One."
+
+queued_inputs = []
+inputs = []
 
 # Start the gameloop to play.
 if __name__ == "__main__":
