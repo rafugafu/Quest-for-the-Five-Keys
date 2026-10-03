@@ -1715,7 +1715,6 @@ public:
             "Always examine objects, however unrelated you think they are.\n\n"
             "Always follow paths to their end.\n\n"
             "Don't go anywhere you can't see anything around, you will just waste commands.\n\n"
-            "Every NPC in the game does something, to help you, or to kill you.\n\n"
             "When talking to an NPC, you can only select one of the numbered options given by the game "
             "by typing the exact number you want. For example, you might be given a prompt like options:1/2/3. "
             "Then, you will be able to select 1, 2, or 3.\n\n"
@@ -2311,9 +2310,8 @@ public:
         emit("\x1b[H\x1b[2J");
         pyprintKeepNL(
             "Always try to examine all objects you see.\n"
-            "All NPCs in the game are for a purpose, whether to help you, or to kill you.\n"
             "All passwords are of a similar type. (Example: 123, 456, ... or abc, def, ...)\n"
-            "No passwords look very different from the others.\n"
+            "No passwords look very different from the others (for example gh6f2z3 and MARLIN).\n"
             "Don't go any place where you can't see anything around.\n"
             "If an object inside a container is not listed in look around (if it is inside a container inside another container), you can access it with \x1b[1mcommand\x1b[0m \x1b[3mobject in container\x1b[0m. For example, \x1b[1mtake\x1b[0m \x1b[3mapple\x1b[0m will not work when the apple is inside a box which is on a table, but \x1b[1mtake\x1b[0m \x1b[3mapple from box\x1b[0m will.\n"
             "Moving in any direction always also looks around, you don't need to retype look.\n\n"
