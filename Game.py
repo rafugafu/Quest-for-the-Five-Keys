@@ -237,6 +237,7 @@ def _getinput(string="", *args, **kwargs):
         writefile.flush()
     return userinput
 
+
 def getinput(string="", *args, **kwargs):
     """Custom getinput function to use queued_inputs list
     and add inputs to list of inputs used for save game. If
@@ -783,6 +784,14 @@ class StartingHorse(NPC):
         )
         self.applegiven = False
 
+    def hit(self, person):
+        """Hit the horse and lose."""
+        return EndGame(
+            "I might have had a chance against a human, but a horse? With one kick, I am sent flying to the ground. I survive, but any chance of getting my work back is over.",
+            "At least I learnt to not hit horses.",
+            False,
+        )
+
     def dialogues(self, person):
         """Reaction to being talked to; the horse cannot see an invisible player."""
         if "invisible" in person.properties and person.properties["invisible"] == True:
@@ -854,6 +863,14 @@ class Watchman(NPC):
             }
         )
 
+    def hit(self, person):
+        """Hit the watchman and lose."""
+        return EndGame(
+            "I may not be weak, but I am no match for the strong watchman. He hits a vicious backhand blow, and I fall to the ground. I survive, but any chance of getting my work back is over.",
+            "Try to control your temper in the future.",
+            False,
+        )
+
     def dialogues(self, person):
         """Reaction to being talked to, depending on where the player is standing."""
         if "invisible" in person.properties and person.properties["invisible"] == True:
@@ -921,6 +938,14 @@ class OldLady(NPC):
             }
         )
         self.done = False
+
+    def hit(self, person):
+        """Hit the old lady and die."""
+        return EndGame(
+            "I thought it would be easy... it's just an old lady after all. WRONG!\n\nWith a sudden, powerful swing, the old lady's wooden stick connects with the side of my head. I stumble blindly, trying desparately to dodge, but I lose my footing and fall hard against the stones. The world spins, and everything goes black.",
+            "A nice way to die, getting hit by an old lady.",
+            False,
+        )
 
     def dialogues(self, person):
         """Ask about her son, or greet the player again once she has got what she wanted."""
@@ -1009,6 +1034,14 @@ class JokeMan(NPC):
             }
         )
 
+    def hit(self, person):
+        """Hit the jokeman and lose."""
+        return EndGame(
+            "I hit him hard, and his cry calls the entire village. I may not be weak, but I am no match for so many people. There is no hope of escape.\nAt least I have years to think this over in a lonely prison cell.",
+            "Try to control your temper in the future.",
+            False,
+        )
+
     def dialogues(self, person):
         """Say the next line from the talk list, creating the old lady the first time."""
         if "invisible" in person.properties and person.properties["invisible"] == True:
@@ -1070,6 +1103,14 @@ class StartingMan(NPC):
         """
         self.done = True
         return thing
+
+    def hit(self, person):
+        """Hit the locksmith and lose."""
+        return EndGame(
+            "I may not be weak, but I am no match for the strong locksmith. He hits a vicious backhand blow, and I fall to the ground. I survive, but any chance of getting my work back is over.",
+            "Try to control your temper in the future.",
+            False,
+        )
 
     def dialogues(self, person):
         """Talk to the locksmith; the conversation depends on whether the player has the box and a coin."""
@@ -1504,6 +1545,14 @@ class Ship(InsideWorld):
                         }
                     )
                     self.talked = False
+
+                def hit(self, person):
+                    """Hit the man and lose."""
+                    return EndGame(
+                        "I may not be weak, but I am no match for a ship's captain. He hits a vicious backhand blow, and I fall to the ground. I survive, but any chance of getting my work back is over.",
+                        "Try to control your temper in the future.",
+                        False,
+                    )
 
                 def dialogues(self, person):
                     """Greet the player; a shorter greeting after the first conversation."""
@@ -2147,7 +2196,13 @@ class Apple(Object):
     def __init__(self, position):
         super().__init__(position)
         self.properties.update(
-            {"movable": True, "object": "apple", "color": "red", "other": "shiny"}
+            {
+                "movable": True,
+                "object": "apple",
+                "color": "red",
+                "other": "shiny",
+                "edible": True,
+            }
         )
 
 
@@ -2315,6 +2370,11 @@ class Game:
             "save": self.save,
             "load": self.load,
             "quit": self.quit,
+            "beat": self.hit,
+            "beat up": self.hit,
+            "hit": self.hit,
+            "kill": self.hit,
+            "eat": self.eat,
         } | {cmd + " exit": self.exit for cmd in ("walk", "go", "move", "enter")}
 
         def make_move(dir_):
@@ -2362,9 +2422,9 @@ class Game:
         """Quit game after asking to save game if progress
         is made."""
 
-        if [x for x in inputs if x.strip().lower() not in ("save", "load", "quit")] and self.prompt(
-            "\x1b[1m\x1b[33msave game before quitting? (y/N): \x1b[0m"
-        ):
+        if [
+            x for x in inputs if x.strip().lower() not in ("save", "load", "quit")
+        ] and self.prompt("\x1b[1m\x1b[33msave game before quitting? (y/N): \x1b[0m"):
             if saveoutput := self.save():
                 printoutput(saveoutput)
         return EndGame(None, "bye", None)
@@ -2417,9 +2477,9 @@ class Game:
     def load(self):
         global queued_inputs
         """Load previously saved game. Quit the game if error."""
-        if [x for x in inputs if x.strip().lower() not in ("save", "load", "quit")] and not self.prompt(
-            "\x1b[1m\x1b[33mdiscard current game? (y/N): \x1b[0m"
-        ):
+        if [
+            x for x in inputs if x.strip().lower() not in ("save", "load", "quit")
+        ] and not self.prompt("\x1b[1m\x1b[33mdiscard current game? (y/N): \x1b[0m"):
             return
 
         fn = self.getfile("load")
@@ -2638,7 +2698,7 @@ Moving in any direction always also looks around, you don't need to retype look.
         getinput("\x1b[1m\x1b[31m[Press Enter to continue]\x1b[0m")
         printoutput("\x1b[H\x1b[2J\x1b[3J", end="")
         printoutput("""\
-You are one of the world\'s foremost research scientists. After years of work, you had finally completed the greatest experiment of your career.
+You are one of the world's foremost research scientists. After years of work, you had finally completed the greatest experiment of your career.
 
 Before you could present your discovery, your rivals stole the results of your experiment and fled to a remote island. There they took extraordinary measures to ensure no one could recover your work.
 
@@ -3423,7 +3483,7 @@ Good luck!\
                 guardingblockingpos = position = self.world.positions[pos]
             else:
                 if object_.position == self.person.inventory:
-                    return f'I\'m carrying {object_.properties["reference"] if "reference" in object_.properties else "it"}!'
+                    return f"I'm carrying {object_.properties['reference'] if 'reference' in object_.properties else 'it'}!"
                 if object_.position.properties["type"] != "world-position":
                     return "I can't go there."
                 pos = object_.position.worldposition
@@ -3579,7 +3639,7 @@ Good luck!\
                 if "secondname" in obj.properties:
                     objectnamesholding[obj.properties["secondname"]] = obj
             if objectname not in objectnamesholding:
-                return f'I don\'t see that {holder.properties["objectsare"]} the \x1b[1m\x1b[38;5;136m{holdername}\x1b[0m.'
+                return f"I don't see that {holder.properties['objectsare']} the \x1b[1m\x1b[38;5;136m{holdername}\x1b[0m."
             object_ = objectnamesholding[objectname]
             objectname = object_.properties["object"]
         else:
@@ -3671,6 +3731,38 @@ Good luck!\
         if object_ not in self.person.wearing:
             return "I'm not wearing that."
         return object_.unwear(self.person)
+
+    def eat(self, inputstring=None):
+        """Try to eat (and always fail) something."""
+        if not inputstring:
+            return "What should I eat?"
+        objectname = inputstring.strip()
+        if objectname.startswith("the "):
+            objectname = objectname[4:]
+        if objectname not in self.objectindex:
+            return "I don't see that here."
+        object_ = self.objectindex[objectname]
+        objectname = object_.properties["object"]
+        if "edible" in object_.properties and object_.properties["edible"]:
+            return "I'm not hungry."
+        else:
+            return "Ahhh, tasty!"
+
+    def hit(self, inputstring=None):
+        """Hit something or someone."""
+        if not inputstring:
+            return "What should I hit?"
+        objectname = inputstring.strip()
+        if objectname.startswith("the "):
+            objectname = objectname[4:]
+        if objectname not in self.objectindex:
+            return "I don't see that here."
+        object_ = self.objectindex[objectname]
+        objectname = object_.properties["object"]
+        if object_.properties["type"] == "npc":
+            return object_.hit(self.person)
+        else:
+            return "Please try to control your temper."
 
     def drop(self, inputstring=None):
         """Drop an object, or put it in or on a container."""

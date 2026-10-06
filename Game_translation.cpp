@@ -528,6 +528,9 @@ public:
     virtual DPtr dialogues(Person*) { return nullptr; }
     virtual std::pair<bool,DPtr> guardtalk(Person*) { return {true,nullptr}; }
     virtual std::pair<bool,DPtr> give(GameObject*, Person*) { return {false,nullptr}; }
+    // hit(): nullopt means this object has no hit() (Python raises AttributeError there,
+    // which parse() turns into "Sorry, I don't understand.").
+    virtual std::optional<EndGame> hit(Person*) { return std::nullopt; }
 
     // Typed downcasts via virtual dispatch (no RTTI needed).
     // holdingPtr() returns this object's item set if it is a container, else nullptr.
@@ -800,6 +803,7 @@ public:
     explicit Apple(Container* pos) : GameObject(pos) {
         properties["movable"]=true; properties["object"]=std::string("apple");
         properties["color"]=std::string("red"); properties["other"]=std::string("shiny");
+        properties["edible"]=true;
     } SIMPLE_MOVE_DEL
 };
 class Banana : public GameObject {
@@ -1094,6 +1098,9 @@ public:
 };
 class ShipGoodMan : public NPC {
 public:
+    std::optional<EndGame> hit(Person*) override {
+        return EndGame{"I may not be weak, but I am no match for a ship's captain. He hits a vicious backhand blow, and I fall to the ground. I survive, but any chance of getting my work back is over.","Try to control your temper in the future.",false};
+    }
     bool talked=false;
     explicit ShipGoodMan(Container* pos) : NPC(pos) {
         properties["object"]=std::string("man"); properties["other"]=std::string("tall, cheerful looking");
@@ -1332,6 +1339,9 @@ public:
 // ─────────────────────────────────────────────────────────────
 class StartingHorse : public NPC {
 public:
+    std::optional<EndGame> hit(Person*) override {
+        return EndGame{"I might have had a chance against a human, but a horse? With one kick, I am sent flying to the ground. I survive, but any chance of getting my work back is over.","At least I learnt to not hit horses.",false};
+    }
     WorldPosition* jumpposition;
     std::string returnmessage;
     bool applegiven=false;
@@ -1365,6 +1375,9 @@ public:
 
 class Watchman : public NPC {
 public:
+    std::optional<EndGame> hit(Person*) override {
+        return EndGame{"I may not be weak, but I am no match for the strong watchman. He hits a vicious backhand blow, and I fall to the ground. I survive, but any chance of getting my work back is over.","Try to control your temper in the future.",false};
+    }
     GameObject* guarded_obj;
     WorldPosition* outposition;
     Watchman(GameObject* obj, WorldPosition* outp) : NPC(obj->position), guarded_obj(obj), outposition(outp) {
@@ -1397,6 +1410,9 @@ public:
 
 class OldLady : public NPC {
 public:
+    std::optional<EndGame> hit(Person*) override {
+        return EndGame{"I thought it would be easy... it's just an old lady after all. WRONG!\n\nWith a sudden, powerful swing, the old lady's wooden stick connects with the side of my head. I stumble blindly, trying desparately to dodge, but I lose my footing and fall hard against the stones. The world spins, and everything goes black.","A nice way to die, getting hit by an old lady.",false};
+    }
     bool done=false;
     explicit OldLady(Container* pos) : NPC(pos) {
         properties["object"]=std::string("old lady"); properties["other"]=std::string("stern");
@@ -1477,6 +1493,9 @@ public:
 
 class StartingMan : public NPC {
 public:
+    std::optional<EndGame> hit(Person*) override {
+        return EndGame{"I may not be weak, but I am no match for the strong locksmith. He hits a vicious backhand blow, and I fall to the ground. I survive, but any chance of getting my work back is over.","Try to control your temper in the future.",false};
+    }
     bool coingiven=false, done=false;
     explicit StartingMan(Container* pos) : NPC(pos) {
         properties["object"]=std::string("man"); properties["other"]=std::string("big, strong");
@@ -1592,6 +1611,8 @@ public:
         commands["help"]        =[s](const std::string& x){ return x.empty()?s->cmdHelp():gStr("\x1b[31mSorry, I don't understand.\x1b[0m"); };
         commands["moves"]=commands["commands"]=[s](const std::string& x){ return x.empty()?gStr("\x1b[32mYou have "+std::to_string(s->maxcommands-s->donecommands)+" commands left.\x1b[0m"):gStr("\x1b[31mSorry, I don't understand.\x1b[0m"); };
         commands["quit"]         =[s](const std::string& x){ return x.empty()?s->cmdQuit():gStr("\x1b[31mSorry, I don't understand.\x1b[0m"); };
+        commands["beat"]=commands["beat up"]=commands["hit"]=commands["kill"]=[s](const std::string& x){ return s->cmdHit(x); };
+        commands["eat"]=[s](const std::string& x){ return s->cmdEat(x); };
         commands["save"]=[s](const std::string& x){ return x.empty()?s->cmdSave():gStr("\x1b[31mSorry, I don't understand.\x1b[0m"); };
         commands["load"]=[s](const std::string& x){ return x.empty()?s->cmdLoad():gStr("\x1b[31mSorry, I don't understand.\x1b[0m"); };
         commands["walk"]=commands["move"]=commands["go"]=[s](const std::string& x){ return s->cmdMove(x); };
@@ -1625,7 +1646,7 @@ public:
         for (const std::string& d : {std::string("north"),std::string("south"),std::string("east"),std::string("west")})
             for (const std::string& dd : {d, std::string(1,d[0])})
                 commands[dd]=[s,dd](const std::string& x){ return x.empty()?s->cmdMove(dd):gStr("\x1b[31mSorry, I don't understand.\x1b[0m"); };
-        ongoingcmds={"pick","look","talk","put","take","walk","go","move","enter"};
+        ongoingcmds={"pick","look","talk","put","take","walk","go","move","enter","beat"};
     }
 
     // ── reset (mirrors Game.reset) ─────────────────────────────
@@ -2195,6 +2216,28 @@ public:
             return std::nullopt;
         }
         return fn;
+    }
+
+    // ── cmdHit / cmdEat (mirror Game.hit / Game.eat) ──────────
+    GameResult cmdHit(const std::string& inp) {
+        if(inp.empty()) return gStr("What should I hit?");
+        std::string n=inp; if(n.substr(0,4)=="the ") n=n.substr(4);
+        if(!objectindex.count(n)) return gStr("I don't see that here.");
+        auto* obj=objectindex.at(n);
+        if(typeOf(obj)=="npc") {
+            auto eg=obj->hit(person);
+            if(!eg) return gStr("\x1b[31mSorry, I don't understand.\x1b[0m");
+            return GameResult::fromEnd(eg->description,eg->endmessage,eg->win);
+        }
+        return gStr("Please try to control your temper.");
+    }
+    GameResult cmdEat(const std::string& inp) {
+        if(inp.empty()) return gStr("What should I eat?");
+        std::string n=inp; if(n.substr(0,4)=="the ") n=n.substr(4);
+        if(!objectindex.count(n)) return gStr("I don't see that here.");
+        auto* obj=objectindex.at(n);
+        if(propBool(obj->properties,"edible")) return gStr("I'm not hungry.");
+        return gStr("Ahhh, tasty!");
     }
 
     // ── cmdQuit (mirrors Game.quit) ────────────────────────────
