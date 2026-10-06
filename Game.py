@@ -51,7 +51,7 @@ Overview of the object model:
       "properties" dict that drives how Game describes and treats it. Keys:
         type            kind of thing ("object", "container", "npc", "note", ...)
         object          the name the player types and sees
-        secondname      an alternative name that also resolves to the thing
+        altnames        a list of alternative names which all resolve to the thing
         movable         whether it can be taken
         color / material / other / otherafter / height / width
                         adjectives used by examine
@@ -73,6 +73,7 @@ Overview of the object model:
 
 import sys
 import signal
+from collections import deque
 
 # Ctrl+C quits quietly with status 1 instead of showing a traceback.
 exit = sys.exit
@@ -751,7 +752,7 @@ class StartingPath(Path):
                 "object": "dirt trail",
                 "color": "brown",
                 "other": "narrow,",
-                "secondname": "trail",
+                "altnames": ["trail"],
                 "insidereference": "on",
             }
         )
@@ -934,7 +935,7 @@ class OldLady(NPC):
                 "other": "stern",
                 "reference": "she",
                 "message": "She is looking around for someone.",
-                "secondname": "lady",
+                "altnames": ["lady"],
             }
         )
         self.done = False
@@ -1369,7 +1370,7 @@ class House(InsideWorld):
                             "movable": True,
                             "object": "book",
                             "other": "black hardcover",
-                            "secondname": "diary",
+                            "altnames": ["diary"],
                         }
                     )
 
@@ -1471,7 +1472,7 @@ class Ship(InsideWorld):
                 self.properties.update(
                     {
                         "object": "long hallway",
-                        "secondname": "hallway",
+                        "altnames": ["hallway"],
                         "insidereference": "in",
                     }
                 )
@@ -1662,7 +1663,7 @@ class BabyFood(Object):
                 "movable": True,
                 "object": "baby food",
                 "other": "mushy",
-                "secondname": "food",
+                "altnames": ["food"],
                 "pluralreference": "some",
             }
         )
@@ -1721,7 +1722,7 @@ class StartingForest(InsideWorld):
         def __init__(self, position):
             super().__init__(
                 position,
-                "The text is scratched on the fallen branch:\n" + LAST_PASSWD_CODE,
+                "The text is scratched on the branch:\n" + LAST_PASSWD_CODE,
             )
             self.properties.update(
                 {
@@ -1729,8 +1730,8 @@ class StartingForest(InsideWorld):
                     "object": "fallen branch",
                     "color": "brown",
                     "other": "medium-sized",
-                    "secondname": "branch",
-                    "message": "There are some faint scratches on the branch.",
+                    "altnames": ["branch", "scratches"],
+                    "message": "There are some faint scratches on it.",
                 }
             )
 
@@ -1802,7 +1803,7 @@ class CodePaper(Note):
                 "object": "piece of paper",
                 "color": "white",
                 "other": "small",
-                "secondname": "paper",
+                "altnames": ["paper"],
             }
         )
 
@@ -1899,7 +1900,7 @@ class LockedBox(ContainerObject):
                 "material": "iron",
                 "objectsare": "in",
                 "other": "strong",
-                "secondname": "box",
+                "altnames": ["box"],
                 "key": "key",
             }
         )
@@ -2000,7 +2001,7 @@ class MainDevice(ContainerObject):
                     "message": f"None of the lights are on out of {self.total} total lights.",
                     "reference": "they",
                     "pluralreference": "some",
-                    "secondname": "light",
+                    "altnames": ["light"],
                 }
             )
 
@@ -2025,7 +2026,7 @@ class MainDevice(ContainerObject):
                 "object": "electronic device",
                 "objectsare": "on",
                 "message": "The device looks very important.",
-                "secondname": "device",
+                "altnames": ["device"],
                 "putinside": False,
                 "usable": True,
             }
@@ -2076,7 +2077,7 @@ class SandPatch(ContainerObject):
                 "digable": True,
                 "objectsare": "on",
                 "putinside": False,
-                "secondname": "sand",
+                "altnames": ["sand"],
                 "digtool": "spade",
                 "nodigtoolmessage": "I need a tool to do that...",
             }
@@ -2171,7 +2172,7 @@ class Key(Object):
         self.properties["objectsusableon"] = {
             object_.openname,
             object_.closedname,
-            object_.properties["secondname"],
+            *object_.properties["altnames"],
         }
 
     def use(self, person, object_=None):
@@ -2601,7 +2602,6 @@ Always try to examine all objects you see.
 All passwords are of a similar type. (Example: 123, 456, ... or abc, def, ...)
 No passwords look very different from the others (for example gh6f2z3 and MARLIN).
 Don't go any place where you can't see anything around.
-If an object inside a container is not listed in look around (if it is inside a container inside another container), you can access it with \x1b[1mcommand\x1b[0m \x1b[3mobject in container\x1b[0m. For example, \x1b[1mtake\x1b[0m \x1b[3mapple\x1b[0m will not work when the apple is inside a box which is on a table, but \x1b[1mtake\x1b[0m \x1b[3mapple from box\x1b[0m will.
 Moving in any direction always also looks around, you don't need to retype look.
 
 \x1b[1m\x1b[4mUseful commands:\x1b[0m
@@ -2733,8 +2733,6 @@ You can always interact with an object if it is in view (listed in 'look').\
         printoutput("\x1b[H\x1b[2J\x1b[3J", end="")
         printoutput(f"""\
 When interacting with an object in any way (pick up, examine, talk to, etc), you don't need to type the full name. You can usually use only one word. For example, take box instead of take locked box, exam device instead of exam electronic device, etc.
-
-If an object inside a container is not listed in look around (if it is inside a container inside another container), you can access it with \x1b[1mcommand\x1b[0m \x1b[3mobject in container\x1b[0m. For example, take apple will not work when the apple is inside a box which is on a table, but take apple from box will.
 
 You can also use abbreviations for commands, like exam instead of examine, talk instead of talk to, etc. They are also given in the help.
 
@@ -3246,7 +3244,7 @@ Good luck!\
             returnstring += (
                 " "
                 + object_.properties["objectsare"].capitalize()
-                + f' the {objectname if "secondname" not in object_.properties else object_.properties["secondname"]} '
+                + f" the {objectname if 'altnames' not in object_.properties else object_.properties['altnames'][0]} "
             )
             if len(holding) == 1:
                 if (
@@ -3358,7 +3356,7 @@ Good luck!\
                 )
                 self.updateobjectindex()
                 return (
-                    f'\x1b[3m{person.properties["reference"].capitalize()} gives me {self.formatplural(givenobjectnames)}.\x1b[0m'
+                    f"\x1b[3m{person.properties['reference'].capitalize()} gives me {self.formatplural(givenobjectnames)}.\x1b[0m"
                     + "\n"
                     + curdil[0]
                 )
@@ -3371,7 +3369,7 @@ Good luck!\
                 printoutput(f"\x1b[3m[{i}] {option}\x1b[0m")
             while True:
                 chosen = getinput(
-                    f'\n\x1b[3moptions: {"/".join(map(str, range(1, i + 1)))}.\x1b[0m '
+                    f"\n\x1b[3moptions: {'/'.join(map(str, range(1, i + 1)))}.\x1b[0m "
                 ).strip()
                 try:
                     if int(chosen) <= 0:
@@ -3414,8 +3412,8 @@ Good luck!\
             if curworld.properties["type"] != "inside-world":
                 return toreturn
             toreturn.add(curworld.properties["object"])
-            if "secondname" in curworld.properties:
-                toreturn.add(curworld.properties["secondname"])
+            if "altnames" in curworld.properties:
+                deque(map(toreturn.add, curworld.properties["altnames"]), maxlen=0)
             curworld = curworld.position.world
 
     def move(self, givendir=None):
@@ -3636,8 +3634,14 @@ Good luck!\
             objectnamesholding = {}
             for obj in holding:
                 objectnamesholding[obj.properties["object"]] = obj
-                if "secondname" in obj.properties:
-                    objectnamesholding[obj.properties["secondname"]] = obj
+                if "altnames" in obj.properties:
+                    deque(
+                        map(
+                            lambda name: objectnamesholding.update({name: obj}),
+                            obj.properties["altnames"],
+                        ),
+                        maxlen=0,
+                    )
             if objectname not in objectnamesholding:
                 return f"I don't see that {holder.properties['objectsare']} the \x1b[1m\x1b[38;5;136m{holdername}\x1b[0m."
             object_ = objectnamesholding[objectname]
@@ -3877,6 +3881,35 @@ Good luck!\
         Covers the cells around the player (and the contents of open containers there),
         the paths nearby and the inventory. Must be called after anything moves.
         """
+
+        def _recurse_scan_holder(object_):
+            """Recursively scan an object and, if it is a container, its
+            contents to build the objectindex."""
+            objectindex = {}
+            objectnamesindex = {}
+            objectindex[object_.properties["object"]] = object_
+            objectnamesindex[object_.properties["object"]] = object_
+            if "altnames" in object_.properties:
+                deque(
+                    map(
+                        lambda name: objectindex.update({name: object_}),
+                        object_.properties["altnames"],
+                    ),
+                    maxlen=0,
+                )
+            if object_.properties["type"] in (
+                "container",
+                "blocking-container",
+            ) and (
+                "open" not in object_.properties or object_.properties["open"] == True
+            ):
+                for obj in object_.holding:
+                    objholding = _recurse_scan_holder(obj)
+                    objectindex.update(objholding[0])
+                    objectnamesindex.update(objholding[1])
+
+            return objectindex, objectnamesindex
+
         self.aroundobjects = {}
         self.aroundpaths = {}
         self.objectindex = {}
@@ -3922,59 +3955,27 @@ Good luck!\
                         (x, y),
                     )
                     self.objectindex[path.properties["object"]] = path
-                    if "secondname" in path.properties:
-                        self.objectindex[path.properties["secondname"]] = path
+                    if "altnames" in path.properties:
+                        deque(
+                            map(
+                                lambda name: self.objectindex.update({name: path}),
+                                path.properties["altnames"],
+                            ),
+                            maxlen=0,
+                        )
                 objects = self.person.position.world.positions[(x, y)].holding
                 for object_ in objects:
                     key = object_.properties["object"]
-                    secondkey = (
-                        object_.properties["secondname"]
-                        if "secondname" in object_.properties
-                        else None
-                    )
                     if key == "person":
                         continue
-                    if secondkey == "person":
-                        continue
                     self.aroundobjects[key] = (object_, (xi, yi))
-                    self.objectindex[key] = object_
-                    if secondkey:
-                        self.objectindex[secondkey] = object_
-                    if object_.properties["type"] in (
-                        "container",
-                        "blocking-container",
-                    ) and (
-                        "open" not in object_.properties
-                        or object_.properties["open"] == True
-                    ):
-                        for obj in object_.holding:
-                            self.aroundobjects[obj.properties["object"]] = (
-                                obj,
-                                [object_, (xi, yi)],
-                            )
-                            self.objectindex[obj.properties["object"]] = obj
-                            if "secondname" in obj.properties:
-                                self.objectindex[obj.properties["secondname"]] = obj
+                    self.objectindex.update(_recurse_scan_holder(object_)[0])
         # The inventory (and the contents of open containers in it) is always reachable.
         self.inventoryobjects = {}
         for object_ in self.person.inventory.holding:
-            key = object_.properties["object"]
-            secondkey = (
-                object_.properties["secondname"]
-                if "secondname" in object_.properties
-                else None
-            )
-            self.inventoryobjects[key] = object_
-            self.objectindex[key] = object_
-            if secondkey:
-                self.objectindex[secondkey] = object_
-            if object_.properties["type"] in ("container", "blocking-container") and (
-                "open" not in object_.properties or object_.properties["open"] == True
-            ):
-                for obj in object_.holding:
-                    self.objectindex[obj.properties["object"]] = obj
-                    if "secondname" in obj.properties:
-                        self.objectindex[obj.properties["secondname"]] = obj
+            object_holding = _recurse_scan_holder(object_)
+            self.inventoryobjects.update(object_holding[1])
+            self.objectindex.update(object_holding[0])
 
     def parse(self, line):
         """Match a typed line to a command and run it.

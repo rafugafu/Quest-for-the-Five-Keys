@@ -248,7 +248,7 @@ static bool parseArgs(int argc, char** argv, std::string& fileOpt, bool& fileSet
 // ─────────────────────────────────────────────────────────────
 using PropVal = std::variant<
     std::monostate, std::string, bool, int, double,
-    std::unordered_set<std::string>
+    std::unordered_set<std::string>, std::vector<std::string>
 >;
 using Props = std::unordered_map<std::string, PropVal>;
 
@@ -285,6 +285,11 @@ static std::string capFirst(std::string s) {
 static const std::unordered_set<std::string>* propSet(const Props& p, const std::string& k){
     auto it=p.find(k); if(it==p.end()) return nullptr;
     return std::get_if<std::unordered_set<std::string>>(&it->second);
+}
+static std::vector<std::string> propList(const Props& p, const std::string& k){
+    auto it=p.find(k); if(it==p.end()) return {};
+    if(auto*v=std::get_if<std::vector<std::string>>(&it->second)) return *v;
+    return {};
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -719,7 +724,7 @@ public:
         properties["object"]         = std::string("dirt trail");
         properties["color"]         = std::string("brown");
         properties["other"]          = std::string("narrow,");
-        properties["secondname"]     = std::string("trail");
+        properties["altnames"]=std::vector<std::string>{"trail"};
         properties["insidereference"]= std::string("on");
     }
 };
@@ -840,7 +845,7 @@ public:
         lock();
         properties["movable"]=true; properties["color"]=std::string("metal-colored");
         properties["material"]=std::string("iron"); properties["objectsare"]=std::string("in");
-        properties["other"]=std::string("strong"); properties["secondname"]=std::string("box");
+        properties["other"]=std::string("strong"); properties["altnames"]=std::vector<std::string>{"box"};
         properties["key"]=std::string("key");
     }
     void lock()   { properties["open"]=false; properties["object"]=closedname; }
@@ -853,7 +858,9 @@ public:
         properties["movable"]=true; properties["object"]=std::string("key");
         properties["color"]=std::string("faded black"); properties["material"]=std::string("iron");
         properties["other"]=std::string("old, heavy,"); properties["usable"]=true;
-        properties["objectsusableon"]=std::unordered_set<std::string>{box->openname, box->closedname, propStr(box->properties,"secondname")};
+        std::unordered_set<std::string> usableon{box->openname, box->closedname};
+        for(auto& alt:propList(box->properties,"altnames")) usableon.insert(alt);
+        properties["objectsusableon"]=usableon;
     }
     SIMPLE_MOVE_DEL
     GameResult use(Person*, GameObject* obj=nullptr) override {
@@ -906,7 +913,7 @@ public:
         "The text '"+numify(passwd)+"' is written on the paper.") {
         properties["movable"]=true; properties["object"]=std::string("piece of paper");
         properties["color"]=std::string("white"); properties["other"]=std::string("small");
-        properties["secondname"]=std::string("paper");
+        properties["altnames"]=std::vector<std::string>{"paper"};
     } SIMPLE_MOVE_DEL
 };
 
@@ -998,7 +1005,7 @@ public:
     Book(Container* pos, const std::string& text) : Note(pos,text) {
         properties["movable"]=true; properties["object"]=std::string("book");
         properties["other"]=std::string("black hardcover");
-        properties["secondname"]=std::string("diary");
+        properties["altnames"]=std::vector<std::string>{"diary"};
     } SIMPLE_MOVE_DEL
 };
 class Desk : public ContainerObject {
@@ -1062,7 +1069,7 @@ class ShipHallway : public Path {
 public:
     ShipHallway(WorldBase* w, std::pair<int,int> a_, std::pair<int,int> b_) : Path(w,a_,b_) {
         properties["object"]=std::string("long hallway");
-        properties["secondname"]=std::string("hallway");
+        properties["altnames"]=std::vector<std::string>{"hallway"};
         properties["insidereference"]=std::string("in");
     }
 };
@@ -1184,7 +1191,7 @@ class BabyFood : public GameObject {
 public:
     explicit BabyFood(Container* pos) : GameObject(pos) {
         properties["movable"]=true; properties["object"]=std::string("baby food");
-        properties["other"]=std::string("mushy"); properties["secondname"]=std::string("food");
+        properties["other"]=std::string("mushy"); properties["altnames"]=std::vector<std::string>{"food"};
         properties["pluralreference"]=std::string("some");
     } SIMPLE_MOVE_DEL
 };
@@ -1220,11 +1227,11 @@ public:
 
 class ForestBranch : public Note {
 public:
-    explicit ForestBranch(Container* pos) : Note(pos,"The text is scratched on the fallen branch:\n"+LAST_PASSWD_CODE) {
+    explicit ForestBranch(Container* pos) : Note(pos,"The text is scratched on the branch:\n"+LAST_PASSWD_CODE) {
         properties["movable"]=false; properties["object"]=std::string("fallen branch");
         properties["color"]=std::string("brown"); properties["other"]=std::string("medium-sized");
-        properties["secondname"]=std::string("branch");
-        properties["message"]=std::string("There are some faint scratches on the branch.");
+        properties["altnames"]=std::vector<std::string>{"branch","scratches"};
+        properties["message"]=std::string("There are some faint scratches on it.");
     } SIMPLE_MOVE_DEL
 };
 
@@ -1254,7 +1261,7 @@ public:
         properties["movable"]=false; properties["object"]=std::string("lights");
         properties["plural"]=true; properties["color"]=std::string("green");
         properties["reference"]=std::string("they"); properties["pluralreference"]=std::string("some");
-        properties["secondname"]=std::string("light");
+        properties["altnames"]=std::vector<std::string>{"light"};
         properties["message"]="None of the lights are on out of "+std::to_string(total)+" total lights.";
     }
     void moveToContainer(Container*) override { /* lights stay fixed */ }
@@ -1305,7 +1312,7 @@ public:
         button = new Button(this, lights);
         properties["movable"]=true; properties["object"]=std::string("electronic device");
         properties["objectsare"]=std::string("on"); properties["message"]=std::string("The device looks very important.");
-        properties["secondname"]=std::string("device"); properties["putinside"]=false; properties["usable"]=true;
+        properties["altnames"]=std::vector<std::string>{"device"}; properties["putinside"]=false; properties["usable"]=true;
     }
     GameResult use(Person* p, GameObject* =nullptr) override { return button->press(p); }
 };
@@ -1321,7 +1328,7 @@ public:
         properties["movable"]=false; properties["object"]=std::string("patch of sand");
         properties["color"]=std::string("white"); properties["other"]=std::string("small");
         properties["digable"]=true; properties["objectsare"]=std::string("on");
-        properties["putinside"]=false; properties["secondname"]=std::string("sand");
+        properties["putinside"]=false; properties["altnames"]=std::vector<std::string>{"sand"};
         properties["digtool"]=std::string("spade");
         properties["nodigtoolmessage"]=std::string("I need a tool to do that...");
     }
@@ -1418,7 +1425,7 @@ public:
         properties["object"]=std::string("old lady"); properties["other"]=std::string("stern");
         properties["reference"]=std::string("she");
         properties["message"]=std::string("She is looking around for someone.");
-        properties["secondname"]=std::string("lady");
+        properties["altnames"]=std::vector<std::string>{"lady"};
     }
     DPtr dialogues(Person* p) override {
         if(propBool(p->properties,"invisible"))
@@ -1592,7 +1599,7 @@ public:
     Person* person;
 
     std::unordered_map<std::string,GameObject*> objectindex;
-    struct AroundEntry { GameObject* obj; std::pair<int,int> dir; bool inCont=false; };
+    struct AroundEntry { GameObject* obj; std::pair<int,int> dir; };
     std::unordered_map<std::string,AroundEntry> aroundobjects;
     std::unordered_map<std::string,GameObject*> inventoryobjects;
 
@@ -1750,9 +1757,6 @@ public:
             "When interacting with an object in any way (pick up, examine, talk to, etc), you don't need to type the "
             "full name. You can usually use only one word. For example, take box instead of take locked box, "
             "exam device instead of exam electronic device, etc.\n\n"
-            "If an object inside a container is not listed in look around (if it is inside a container inside another container), "
-            "you can access it with \x1b[1mcommand\x1b[0m \x1b[3mobject in container\x1b[0m. For example, take apple will not work when the apple "
-            "is inside a box which is on a table, but take apple from box will.\n\n"
             "You can also use abbreviations for commands, like exam instead of examine, talk instead of talk to, etc. "
             "They are also given in the help.\n\n"
             "You are allowed to use a maximum of "+std::to_string(maxcommands)+" commands, including 'help'. After that, it will be too late "
@@ -1820,6 +1824,20 @@ public:
         return r+", and "+a.back();
     }
 
+    // ── scanHolder (mirrors Python's _recurse_scan_holder) ──
+    // Adds the object's name and altnames to indexInto, and its primary name to namesInto when given.
+    // Recurses into open containers so objects nested at any depth stay reachable.
+    void scanHolder(GameObject* obj, std::unordered_map<std::string,GameObject*>& indexInto,
+                    std::unordered_map<std::string,GameObject*>* namesInto) {
+        std::string key=propStr(obj->properties,"object");
+        indexInto[key]=obj;
+        if(namesInto) (*namesInto)[key]=obj;
+        for(auto& alt:propList(obj->properties,"altnames")) indexInto[alt]=obj;
+        if(isContainer(obj)&&isOpenOrGateless(obj)) {
+            if(auto* h=holdingOf(obj)) for(auto* inner:*h) scanHolder(inner,indexInto,namesInto);
+        }
+    }
+
     // ── updateIdx ────────────────────────────────────────────
     void updateIdx() {
         aroundobjects.clear(); aroundpaths.clear(); objectindex.clear(); inventoryobjects.clear();
@@ -1844,48 +1862,19 @@ public:
                 std::string pn=propStr(pe.path->properties,"object");
                 aroundpaths[pn]=pe;
                 objectindex[pn]=pe.path;
-                std::string sec=propStr(pe.path->properties,"secondname");
-                if(!sec.empty()) objectindex[sec]=pe.path;
+                for(auto& alt:propList(pe.path->properties,"altnames")) objectindex[alt]=pe.path;
             }
             for(auto* obj:world->positions.at(np)->holding) {
                 // skip person sentinel
                 if(obj==reinterpret_cast<GameObject*>(person)) continue;
                 std::string key=propStr(obj->properties,"object");
                 if(key=="person") continue;
-                std::string sec=propStr(obj->properties,"secondname");
                 aroundobjects[key]={obj,{xi,yi}};
-                objectindex[key]=obj;
-                if(!sec.empty()) objectindex[sec]=obj;
-                if(isContainer(obj)&&isOpenOrGateless(obj)) {
-                    if(auto* h=holdingOf(obj)) {
-                        for(auto* inner:*h) {
-                            std::string ik=propStr(inner->properties,"object");
-                            aroundobjects[ik]={inner,{xi,yi},true};
-                            objectindex[ik]=inner;
-                            std::string is=propStr(inner->properties,"secondname");
-                            if(!is.empty()) objectindex[is]=inner;
-                        }
-                    }
-                }
+                scanHolder(obj,objectindex,nullptr);
             }
         }
-        // inventory
-        for(auto* obj:person->inventory.holding) {
-            std::string key=propStr(obj->properties,"object");
-            std::string sec=propStr(obj->properties,"secondname");
-            inventoryobjects[key]=obj;
-            objectindex[key]=obj;
-            if(!sec.empty()) objectindex[sec]=obj;
-            if(isContainer(obj)&&isOpenOrGateless(obj)) {
-                if(auto* h=holdingOf(obj)) {
-                    for(auto* inner:*h) {
-                        objectindex[propStr(inner->properties,"object")]=inner;
-                        std::string is=propStr(inner->properties,"secondname");
-                        if(!is.empty()) objectindex[is]=inner;
-                    }
-                }
-            }
-        }
+        // The inventory (and the contents of open containers in it) is always reachable.
+        for(auto* obj:person->inventory.holding) scanHolder(obj,objectindex,&inventoryobjects);
     }
 
     // ── resolveWithHolder (mirrors Python's Engine.resolve) ──
@@ -1917,8 +1906,8 @@ public:
             return {nullptr,"\x1b[31mSorry, I don't understand.\x1b[0m"};
         if(auto* h=holdingOf(holder))
             for(auto* o:*h) {
-                std::string sn=propStr(o->properties,"secondname");
-                if(propStr(o->properties,"object")==objn || (!sn.empty()&&sn==objn))
+                auto alts=propList(o->properties,"altnames");
+                if(propStr(o->properties,"object")==objn || std::find(alts.begin(),alts.end(),objn)!=alts.end())
                     return {o,"",holder,hname};
             }
         return {nullptr,"I don't see that "+propStr(holder->properties,"objectsare")+" the \x1b[1m\x1b[38;5;136m"+hname+"\x1b[0m.",nullptr,""};
@@ -1944,8 +1933,7 @@ public:
             if(propStr(curworld->wprops,"type")!="inside-world") return r;
             auto* iw=curworld->asInsideWorld();
             r.insert(propStr(iw->properties,"object"));
-            std::string sn=propStr(iw->properties,"secondname");
-            if(!sn.empty()) r.insert(sn);
+            for(auto& sn:propList(iw->properties,"altnames")) r.insert(sn);
             auto* wp=iw->position->asWorldPosition();
             if(!wp) return r;
             curworld=wp->world;
@@ -2020,7 +2008,6 @@ public:
         std::map<std::string,std::set<GameObject*>*> contHolding;
         for(auto& [name,ae]:aroundobjects) {
             if(person->position->skipSet.count(name)) continue;
-            if(ae.inCont) continue;
             auto it=dirnames.find(ae.dir);
             std::string dn=it!=dirnames.end()?it->second:"";
             dirobjects[dn].push_back(name);
@@ -2357,7 +2344,6 @@ public:
             "All passwords are of a similar type. (Example: 123, 456, ... or abc, def, ...)\n"
             "No passwords look very different from the others (for example gh6f2z3 and MARLIN).\n"
             "Don't go any place where you can't see anything around.\n"
-            "If an object inside a container is not listed in look around (if it is inside a container inside another container), you can access it with \x1b[1mcommand\x1b[0m \x1b[3mobject in container\x1b[0m. For example, \x1b[1mtake\x1b[0m \x1b[3mapple\x1b[0m will not work when the apple is inside a box which is on a table, but \x1b[1mtake\x1b[0m \x1b[3mapple from box\x1b[0m will.\n"
             "Moving in any direction always also looks around, you don't need to retype look.\n\n"
             "\x1b[1m\x1b[4mUseful commands:\x1b[0m\n\n"
             "- \x1b[1mnorth\x1b[0m / \x1b[1msouth\x1b[0m / \x1b[1meast\x1b[0m / \x1b[1mwest\x1b[0m / \x1b[1mout\x1b[0m\n"
@@ -2418,7 +2404,8 @@ public:
         if((type=="container"||type=="blocking-container") && (!propHas(p,"open")||propBool(p,"open"))) {
             if(auto* h=holdingOf(obj)) if(!h->empty()) {
                 std::string oa=propStr(p,"objectsare"); if(!oa.empty()) oa[0]=std::toupper((unsigned char)oa[0]);
-                std::string sn=propHas(p,"secondname")?propStr(p,"secondname"):objname;
+                auto alts=propList(p,"altnames");
+                std::string sn=alts.empty()?objname:alts[0];
                 r+=" "+oa+" the "+sn+" ";
                 bool hp=h->size()>1||(h->size()==1&&propBool((*h->begin())->properties,"plural"));
                 r+=(hp?"are ":"is ");
