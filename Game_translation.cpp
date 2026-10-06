@@ -57,7 +57,7 @@ IF YOU HAVE, GO AHEAD!
 static bool colorEnabled = true;
 static bool ansiEnabled = true;
 static std::string stripColorAnsi(const std::string& s) {
-    static const char* const codes[] = {"0m","1m","31m","32m","38;5;136m","38;5;30m","3m","4m","1;40;36m"};
+    static const char* const codes[] = {"0m","1m","31m","32m","38;5;136m","38;5;30m","3m","4m","1;40;36m","39m","23m"};
     std::string r = s;
     for(const char* code : codes) {
         std::string pat = std::string("\x1b[") + code;
@@ -67,7 +67,7 @@ static std::string stripColorAnsi(const std::string& s) {
     return r;
 }
 static std::string stripAllAnsi(const std::string& s) {
-    static const char* const codes[] = {"0m","1m","31m","32m","38;5;136m","38;5;30m","3m","4m","1;40;36m","2J","3J","H","?1049h","?1049l"};
+    static const char* const codes[] = {"0m","1m","31m","32m","38;5;136m","38;5;30m","3m","4m","1;40;36m","39m","23m","2J","3J","H","?1049h","?1049l"};
     std::string r = s;
     for(const char* code : codes) {
         std::string pat = std::string("\x1b[") + code;
@@ -845,10 +845,11 @@ public:
 
 class Key : public GameObject {
 public:
-    Key(Container* pos, LockedBox*) : GameObject(pos) {
+    Key(Container* pos, LockedBox* box) : GameObject(pos) {
         properties["movable"]=true; properties["object"]=std::string("key");
         properties["color"]=std::string("faded black"); properties["material"]=std::string("iron");
         properties["other"]=std::string("old, heavy,"); properties["usable"]=true;
+        properties["objectsusableon"]=std::unordered_set<std::string>{box->openname, box->closedname, propStr(box->properties,"secondname")};
     }
     SIMPLE_MOVE_DEL
     GameResult use(Person*, GameObject* obj=nullptr) override {
@@ -2057,7 +2058,7 @@ public:
             }
             r+="\n";
         }
-        if(!objectsfound) r="I don't see anything around here.";
+        if(!objectsfound) r+="I don't see anything around here.";
         while(!r.empty()&&(r.back()=='\n'||r.back()==' ')) r.pop_back();
         cls();
         return gStr(r);

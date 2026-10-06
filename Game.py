@@ -175,6 +175,8 @@ stripcoloransi = [
         "3m",
         "4m",
         "1;40;36m",
+        "39m",
+        "23m",
     )
 ]
 # color codes plus screen-control codes (removed by --no-ansi and in the log file).
@@ -3038,7 +3040,7 @@ Good luck!\
                     )
             returnstring += "\n"
         if not objectsfound:
-            returnstring = "I don't see anything around here."
+            returnstring += "I don't see anything around here."
         printoutput("\x1b[H\x1b[2J\x1b[3J", end="")
         return returnstring.strip()
 
