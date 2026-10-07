@@ -1461,6 +1461,9 @@ public:
 
 class JokeMan : public NPC {
 public:
+    std::optional<EndGame> hit(Person*) override {
+        return EndGame{"I hit him hard, and his cry calls the entire village. I may not be weak, but I am no match for so many people. There is no hope of escape.\nAt least I have years to think this over in a lonely prison cell.","Try to control your temper in the future.",false};
+    }
     std::vector<std::string> talklines;
     OldLady* oldlady=nullptr;
     WorldPosition* oldladyPos;
@@ -2229,7 +2232,12 @@ public:
 
     // ── cmdQuit (mirrors Game.quit) ────────────────────────────
     GameResult cmdQuit() {
+        // Snapshot gInputs before the save-prompt's own y/n answer gets appended,
+        // so its last entry is still "quit" — exactly what cmdSave()'s own
+        // pop_back() expects to strip, instead of corrupting a real command.
+        auto realInputs=gInputs;
         if(hasRealProgress()&&promptYN("\x1b[1m\x1b[33msave game before quitting? (y/N): \x1b[0m")) {
+            gInputs=realInputs;
             // Mirrors Python's `if saveoutput := self.save(): printoutput(saveoutput)`.
             auto saveResult=cmdSave();
             if(saveResult.isStr()&&!saveResult.asStr().empty()) pyprint(saveResult.asStr()+"\n");
@@ -2243,7 +2251,10 @@ public:
     // falsy string — cmdQuit() needs to tell them apart to reproduce
     // printoutput(self.save()) printing the literal text "None" in that case.
     GameResult cmdSave() {
+        gInputs.pop_back(); // stop the save command from being saved (and re-prompting to overwrite when loaded)
+        auto realInputs=gInputs; // stop all getFile prompts (filename, overwrite y/n, retries) from being saved
         auto fn=getFile("save");
+        gInputs=realInputs; // restore recorded inputs before getFile, regardless of its outcome
         if(!fn) return GameResult{};
         std::ofstream file(*fn, std::ios::binary);
         if(!file) return gStr("\x1b[31merror: could not open file\x1b[0m");
@@ -2271,8 +2282,13 @@ public:
         if(!file) exitWithError("\x1b[31merror: could not open file\x1b[0m");
         std::string content((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
         reset();
+        cls();
+        auto il=cmdLook();
+        if(il.isStr()) pyprint(il.asStr()+"\n");
+        std::string savedFile=stripStr(content);
+        if(savedFile.empty()) return gStr("");
         gQueuedInputs.clear();
-        { size_t start=0; for(size_t i=0;i<=content.size();++i) if(i==content.size()||content[i]=='\n') { gQueuedInputs.push_back(content.substr(start,i-start)); start=i+1; } }
+        { size_t start=0; for(size_t i=0;i<=savedFile.size();++i) if(i==savedFile.size()||savedFile[i]=='\n') { gQueuedInputs.push_back(savedFile.substr(start,i-start)); start=i+1; } }
         while(!gQueuedInputs.empty()) {
             std::string command=getInputWrapped("\n> ");
             pyprint("\n");

@@ -1960,7 +1960,13 @@ class MainDevice(ContainerObject):
             Returns:
                 An EndGame for a win or loss, or a message.
             """
-            code = getinput("code: ").strip().lower()
+            code = (
+                getinput(
+                    "A small panel with a keypad opens in the device. It looks like it is waiting for me to type something.\ncode: "
+                )
+                .strip()
+                .lower()
+            )
             printoutput()
             if code in self.entered or code not in PASSWORDS:
                 return EndGame(
@@ -2422,10 +2428,16 @@ class Game:
     def quit(self):
         """Quit game after asking to save game if progress
         is made."""
-
+        global inputs
+        # Keep copy of real inputs till now - which doesn't include the
+        # save game before quitting prompt, but does include the quit
+        # command itself which will be stripped by save's del inputs[-1],
+        # to not break the input history if saved.
+        realinputs = inputs.copy()
         if [
             x for x in inputs if x.strip().lower() not in ("save", "load", "quit")
         ] and self.prompt("\x1b[1m\x1b[33msave game before quitting? (y/N): \x1b[0m"):
+            inputs = realinputs
             if saveoutput := self.save():
                 printoutput(saveoutput)
         return EndGame(None, "bye", None)
@@ -2464,7 +2476,13 @@ class Game:
     def save(self):
         """Save game state into a file. Write all inputs including
         commands to load."""
+        global inputs
+        # stop save game command from being saved and then prompting to overwrite
+        # file by saving again when loaded
+        del inputs[-1]
+        realinputs = inputs.copy()  # stop all getfile prompts from being saved
         fn = self.getfile("save")
+        inputs = realinputs  # restore recorded inputs before getfile
         if fn is None:
             return
         try:
@@ -2489,7 +2507,12 @@ class Game:
         try:
             with open(fn, "r", encoding="utf-8") as file:
                 self.reset()
-                queued_inputs = file.read().split("\n")
+                printoutput("\x1b[H\x1b[2J\x1b[3J", end="")
+                printoutput(self.lookaround())
+                savedfile = file.read().strip()
+                if not savedfile:
+                    return
+                queued_inputs = savedfile.split("\n")
                 # Normal loop() till queued_inputs is empty.
                 while queued_inputs:
                     # One typed command per iteration; an EndGame result finishes the round.
@@ -2748,7 +2771,7 @@ Good luck!\
 """)
         getinput("\x1b[1m\x1b[31m[Press Enter to continue]\x1b[0m")
         printoutput("\x1b[H\x1b[2J\x1b[3J", end="")
-        self.reset()
+        self.reset()  # reset again to prevent intro inputs being recorded for save/load game
         printoutput(self.lookaround())
 
     def anifier(self, word, pospointsindir=None):
